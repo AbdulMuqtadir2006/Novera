@@ -1,8 +1,0 @@
-{
-  "dependencies": ["."],
-  "graphs": {
-    "novera": "./novera_ai/orchestrator/graph.py:main_graph",
-    "novera_whatsapp": "./novera_ai/orchestrator/graph.py:whatsapp_graph"
-  },
-  "env": ".env"
-}

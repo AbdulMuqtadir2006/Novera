@@ -1,0 +1,16 @@
+# NOVERA backend (FastAPI + Postgres + LangGraph/OpenRouter)
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+pydantic>=2.8,<3.0
+python-dotenv>=1.0
+
+psycopg[binary]>=3.1
+psycopg-pool>=3.2
+
+langgraph>=0.2,<2.0
+langchain-openai>=0.2
+langchain-core>=0.3
+
+requests>=2.32
+tzdata>=2024.1

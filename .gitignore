@@ -12,7 +12,7 @@
 id_rsa*
 
 # ==============================================================
-# Python (Novera ai part)
+# Python (backend/)
 # ==============================================================
 .venv/
 .venv-1/
@@ -27,7 +27,7 @@ __pycache__/
 .mypy_cache/
 
 # ==============================================================
-# Node / web (novera-web)
+# Node / web (frontend/)
 # ==============================================================
 node_modules/
 **/node_modules/
@@ -52,9 +52,12 @@ appointments.json
 **/*.log
 
 # ==============================================================
-# Large scratch assets (top-level ezgif frames only; NOT novera-web/public/frames)
+# Large scratch assets (top-level ezgif frames only; NOT frontend/public/frames)
 # ==============================================================
 /frames/
+
+# One-off legacy DB copy used by backend/scripts/migrate_sqlite_to_pg.py
+/.migration_scratch/
 
 # ==============================================================
 # Local Claude Code tooling (not project code)
