@@ -1,0 +1,130 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+@layer base {
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-ink font-body text-slate-200 antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-display;
+    letter-spacing: -0.02em;
+  }
+
+  /* Visible, on-brand keyboard focus for every interactive element */
+  :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid #28cfe0;
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+
+  ::selection {
+    background: rgba(236, 97, 232, 0.32);
+    color: #fff;
+  }
+
+  /* Arabic / RTL: swap to an Arabic-capable font across all type roles. */
+  [dir="rtl"] {
+    font-family: "Cairo", system-ui, sans-serif;
+  }
+  [dir="rtl"] .font-display,
+  [dir="rtl"] .font-body {
+    font-family: "Cairo", system-ui, sans-serif;
+  }
+}
+
+@layer components {
+  .container-page {
+    @apply mx-auto w-full max-w-6xl px-5 sm:px-8;
+  }
+
+  .eyebrow {
+    @apply font-mono text-xs font-medium uppercase tracking-[0.28em] text-signal;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-6 py-3 font-body font-semibold text-white shadow-[0_10px_30px_-10px_rgba(236,97,232,0.75)] transition duration-200 ease-expo hover:-translate-y-0.5 hover:brightness-110 active:translate-y-0 active:scale-[0.98];
+    background-image: linear-gradient(135deg, #ec61e8 0%, #b24bd6 48%, #28cfe0 100%);
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border border-white/15 bg-white/5 px-6 py-3 font-body font-semibold text-white backdrop-blur transition duration-200 ease-expo hover:border-signal/50 hover:bg-white/10 active:scale-[0.98];
+  }
+
+  /* Card surfaces */
+  .glass-card {
+    @apply rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur-xl;
+  }
+
+  .light-card {
+    @apply rounded-2xl border border-signal/15 bg-paper shadow-card;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  .text-pretty {
+    text-wrap: pretty;
+  }
+  .mask-fade-b {
+    -webkit-mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
+    mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
+  }
+  .grid-lines {
+    background-image:
+      linear-gradient(rgba(178, 75, 214, 0.07) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(40, 207, 224, 0.06) 1px, transparent 1px);
+    background-size: 56px 56px;
+  }
+  /* Brand magenta→purple→cyan gradient (matches the logo). */
+  .text-gradient {
+    background-image: linear-gradient(120deg, #ec61e8 0%, #b24bd6 45%, #28cfe0 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .brand-gradient {
+    background-image: linear-gradient(135deg, #ec61e8 0%, #b24bd6 48%, #28cfe0 100%);
+  }
+}
+
+/* Respect reduced-motion globally: neutralise decorative animation. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Recharts focus rings shouldn't clip */
+.recharts-wrapper:focus,
+.recharts-surface:focus {
+  outline: none;
+}
