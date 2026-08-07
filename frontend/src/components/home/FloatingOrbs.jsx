@@ -43,7 +43,10 @@ export function FloatingOrbs({
       canvas.style.width = `${w}px`;
       canvas.style.height = `${h}px`;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const count = Math.min(90, Math.round((w * h) / 16000));
+      // Floor keeps phone screens from reading as sparse — orb count would
+      // otherwise scale down to ~20 on a typical portrait viewport vs. ~90
+      // on desktop, even though the same density feel is wanted on both.
+      const count = Math.max(45, Math.min(90, Math.round((w * h) / 16000)));
       orbs = Array.from({ length: count }, () => makeOrb(w, h));
     };
 

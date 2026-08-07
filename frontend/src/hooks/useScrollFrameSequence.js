@@ -5,17 +5,23 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 gsap.registerPlugin(ScrollTrigger);
 
 const TOTAL_FRAMES = 240;
-const getFramePath = (n) => `/frames/frame_${String(n).padStart(4, "0")}.jpg`;
 
-// Build the list of frame numbers actually used. On small screens we sample
-// every second frame to halve the preload weight (brief §4.1 fallback).
+function isSmallScreen() {
+  return typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
+}
+
+// Small screens get a dedicated portrait (720x1280) frame set — cropped for
+// the phone aspect ratio rather than cover-cropped from the desktop
+// landscape (1280x720) set, which loses most of the frame's width.
+const getFramePath = (n, mobile) =>
+  `${mobile ? "/frames-mobile" : "/frames"}/frame_${String(n).padStart(4, "0")}.jpg`;
+
+// Build the list of frame numbers actually used. Both sets ship all 240
+// frames — the mobile set is already sized for phone bandwidth, so no
+// frame-skipping is needed there.
 function buildFrameList() {
-  const isSmall =
-    typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
-  const step = isSmall ? 2 : 1;
   const list = [];
-  for (let n = 1; n <= TOTAL_FRAMES; n += step) list.push(n);
-  if (list[list.length - 1] !== TOTAL_FRAMES) list.push(TOTAL_FRAMES);
+  for (let n = 1; n <= TOTAL_FRAMES; n++) list.push(n);
   return list;
 }
 
@@ -36,6 +42,7 @@ export function useScrollFrameSequence(canvasRef, sectionRef, enabled = true) {
 
   // Preload frames.
   useEffect(() => {
+    const mobile = isSmallScreen();
     const frameNums = buildFrameList();
     frameNumsRef.current = frameNums;
     const count = frameNums.length;
@@ -45,7 +52,7 @@ export function useScrollFrameSequence(canvasRef, sectionRef, enabled = true) {
     imagesRef.current = frameNums.map((n) => {
       const img = new Image();
       img.decoding = "async";
-      img.src = getFramePath(n);
+      img.src = getFramePath(n, mobile);
       const done = () => {
         if (cancelled) return;
         loaded += 1;
@@ -75,6 +82,10 @@ export function useScrollFrameSequence(canvasRef, sectionRef, enabled = true) {
     const lastIndex = imgs.length - 1;
 
     // cover-fit: fill the canvas, cropping overflow, preserving aspect ratio.
+    // Rounds the larger dimension up (with a 1px overscan) so float rounding
+    // never leaves a sliver of canvas undrawn — alpha:false defaults undrawn
+    // pixels to solid black, which reads as a stray line against the page's
+    // navy (#080919) background rather than blending in.
     const drawCover = (img) => {
       if (!img || !img.complete || !img.naturalWidth) return;
       const cw = cssW;
@@ -83,17 +94,18 @@ export function useScrollFrameSequence(canvasRef, sectionRef, enabled = true) {
       const cr = cw / ch;
       let dw, dh, dx, dy;
       if (cr > ir) {
-        dw = cw;
-        dh = cw / ir;
-        dx = 0;
+        dw = cw + 1;
+        dh = Math.ceil(dw / ir);
+        dx = -0.5;
         dy = (ch - dh) / 2;
       } else {
-        dh = ch;
-        dw = ch * ir;
+        dh = ch + 1;
+        dw = Math.ceil(dh * ir);
         dx = (cw - dw) / 2;
-        dy = 0;
+        dy = -0.5;
       }
-      ctx.clearRect(0, 0, cw, ch);
+      ctx.fillStyle = "#080919";
+      ctx.fillRect(0, 0, cw, ch);
       ctx.drawImage(img, dx, dy, dw, dh);
     };
 
