@@ -12,11 +12,13 @@ load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
 # ---- OpenRouter (via ChatOpenAI) ----
+# Two models, split by stakes: cheap/high-volume content generation on DeepSeek,
+# the single screening decision call on Claude (accuracy matters more than cost there).
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "auto").strip() or "auto"
+OPENROUTER_MODEL_CONTENT = os.getenv("OPENROUTER_MODEL_CONTENT", "deepseek/deepseek-chat-v3.1").strip()
+OPENROUTER_MODEL_SCREENING = os.getenv("OPENROUTER_MODEL_SCREENING", "anthropic/claude-sonnet-5").strip()
 OPENROUTER_TIMEOUT_SECONDS = max(15, int(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "60")))
-RESOLVED_MODEL = "openrouter/free" if OPENROUTER_MODEL.lower() == "auto" else OPENROUTER_MODEL
 AI_ENABLED = bool(OPENROUTER_API_KEY.startswith("sk-or-"))
 
 CONFIRMED_CASE_QUERY_LIMIT = max(3, int(os.getenv("CONFIRMED_CASE_QUERY_LIMIT", "25")))

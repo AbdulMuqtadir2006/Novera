@@ -16,8 +16,8 @@ FastAPI backend (Railway, Postgres)
    └── Meta WhatsApp Cloud API (appointment booking + Q&A)
 ```
 
-Deploys to **Vercel** at `www.echo-nova.online`. The backend deploys separately to **Railway** at
-`api.echo-nova.online` — see [`../backend/README.md`](../backend/README.md).
+Deploys to **Cloudflare Pages** at `www.echo-nova.online`. The backend deploys separately to
+**Railway** at `api.echo-nova.online` — see [`../backend/README.md`](../backend/README.md).
 
 - **Stack:** React 18, Vite, Tailwind, Framer Motion, GSAP (frame-scrub hero), Recharts,
   lucide-react, jsPDF + html2canvas (bilingual PDF), Web Speech API.
@@ -35,7 +35,15 @@ npm run dev                   # http://localhost:5173
 Requires the backend running (`../backend`, `uvicorn app.main:app --reload` on :8000) for real
 data — see that folder's README for setup.
 
-`npm run build` produces the production bundle in `dist/` (what Vercel deploys).
+`npm run build` produces the production bundle in `dist/` (what Cloudflare Pages deploys).
+
+## Deploying to Cloudflare Pages
+
+1. Cloudflare dashboard → **Workers & Pages** → **Create** → **Pages** → **Connect to Git**, pick this repo.
+2. Build settings: root directory `frontend/`, build command `npm run build`, build output directory `dist`.
+3. Add env var `VITE_API_URL=https://api.echo-nova.online` under the project's **Settings → Environment variables**.
+4. **Custom domains** tab → add `www.echo-nova.online` (and `echo-nova.online` with a redirect, if desired). If the domain's nameservers are already on Cloudflare, this activates instantly; otherwise Cloudflare gives you the CNAME/records to add at your registrar.
+5. Cloudflare's current Git integration deploys this as a **Worker with static assets** (via `npx wrangler deploy`), not classic Pages — `wrangler.jsonc` in this folder configures that: `assets.directory: "./dist"` plus `not_found_handling: "single-page-application"` so client-side routing (React Router) works on refresh/deep links. (`public/_redirects` is also in the repo as a harmless fallback, but the Worker's SPA fallback is what actually handles this.) Without `wrangler.jsonc`, Wrangler tries to auto-configure via its Vite plugin, which requires Vite 6+ — this repo pins Vite 5, so the config file avoids that path entirely.
 
 ## Features
 

@@ -19,6 +19,7 @@ def health() -> dict:
         "db_ok": db_ok,
         "ai_enabled": config.AI_ENABLED,
         "whatsapp_enabled": config.WHATSAPP_ENABLED,
-        "model": config.RESOLVED_MODEL,
+        "model_content": config.OPENROUTER_MODEL_CONTENT,
+        "model_screening": config.OPENROUTER_MODEL_SCREENING,
         "readings": readings["c"] if readings else None,
     }

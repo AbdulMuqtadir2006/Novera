@@ -8,7 +8,7 @@ a separate Python AI service.
 ## Architecture
 
 ```
-Browser (React frontend, Vercel)
+Browser (React frontend, Cloudflare Pages)
    │  /api/*
    ▼
 FastAPI (Railway)                          Postgres (Railway)
@@ -77,10 +77,10 @@ python scripts/screening_cli.py list --limit 10
    ```
 6. Point a custom domain at the service: `api.echo-nova.online`.
 
-## Deploying the frontend (Vercel)
+## Deploying the frontend (Cloudflare Pages)
 
 See [`../frontend/README.md`](../frontend/README.md). Set `VITE_API_URL=https://api.echo-nova.online`
-in the Vercel project's environment variables, and point `www.echo-nova.online` at it.
+in the Cloudflare Pages project's environment variables, and point `www.echo-nova.online` at it.
 
 ## Going live on WhatsApp (Meta Cloud API)
 

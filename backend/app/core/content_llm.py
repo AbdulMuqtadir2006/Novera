@@ -32,7 +32,7 @@ def _make_llm(temperature: float = 0.3, max_tokens: int = 1200) -> ChatOpenAI:
     if not config.AI_ENABLED:
         raise LLMError("OPENROUTER_API_KEY not configured (must start with sk-or-).")
     return ChatOpenAI(
-        model=config.RESOLVED_MODEL,
+        model=config.OPENROUTER_MODEL_CONTENT,
         api_key=config.OPENROUTER_API_KEY,
         base_url=config.OPENROUTER_BASE_URL,
         temperature=temperature,

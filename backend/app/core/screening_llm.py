@@ -25,59 +25,6 @@ class OpenRouterDecisionError(RuntimeError):
     """Raised when OpenRouter does not produce a valid single-organ decision."""
 
 
-def _models_catalogue() -> list[dict[str, Any]]:
-    import requests
-
-    headers = {"Accept": "application/json"}
-    if config.OPENROUTER_API_KEY:
-        headers["Authorization"] = f"Bearer {config.OPENROUTER_API_KEY}"
-    response = requests.get(
-        "https://openrouter.ai/api/v1/models",
-        params={"supported_parameters": "tools", "sort": "throughput-high-to-low"},
-        headers=headers,
-        timeout=20,
-    )
-    response.raise_for_status()
-    return list(response.json().get("data", []))
-
-
-def _is_free_tool_model(model: dict[str, Any]) -> bool:
-    supported = set(model.get("supported_parameters") or [])
-    pricing = model.get("pricing") or {}
-    model_id = str(model.get("id", ""))
-    try:
-        prompt_price = float(pricing.get("prompt", 1))
-        completion_price = float(pricing.get("completion", 1))
-    except (TypeError, ValueError):
-        return False
-    return bool(
-        model_id
-        and "tools" in supported
-        and "tool_choice" in supported
-        and prompt_price == 0.0
-        and completion_price == 0.0
-    )
-
-
-def _resolve_model() -> str:
-    try:
-        catalogue = _models_catalogue()
-    except Exception as exc:
-        raise OpenRouterDecisionError("OpenRouter model availability could not be checked.") from exc
-
-    free_tool_models = [m for m in catalogue if _is_free_tool_model(m)]
-    if not free_tool_models:
-        raise OpenRouterDecisionError("No currently available free tool-calling model was found.")
-
-    if config.OPENROUTER_MODEL.lower() == "auto":
-        return "openrouter/free"
-
-    configured = next((m for m in catalogue if str(m.get("id")) == config.OPENROUTER_MODEL), None)
-    if configured is None or not _is_free_tool_model(configured):
-        raise OpenRouterDecisionError("The configured OpenRouter model is not currently available as a free tool-calling model.")
-    return config.OPENROUTER_MODEL
-
-
 def _extract_tool_arguments(response: Any) -> dict[str, Any]:
     tool_calls = getattr(response, "tool_calls", None) or []
     for call in tool_calls:
@@ -109,7 +56,7 @@ def decide(reading: dict[str, Any], specialist_results: list[dict[str, Any]]) ->
     if not config.AI_ENABLED:
         raise OpenRouterDecisionError("A valid OPENROUTER_API_KEY is not configured.")
 
-    model = _resolve_model()
+    model = config.OPENROUTER_MODEL_SCREENING
 
     compact_results = [
         {k: item[k] for k in ("organ", "range_score", "similarity_score", "combined_score", "matched_cases", "flag", "closest_confirmed_cases")}
