@@ -10,6 +10,11 @@
       content="Novera — an agentic AI-driven saliva biosensor platform for non-invasive health screening. One sample. A full picture."
     />
     <meta name="theme-color" content="#080919" />
+    <!-- iOS "Add to Home Screen": Safari ignores most of the web manifest,
+         these meta tags are what actually drive standalone/full-screen mode. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Novera" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
