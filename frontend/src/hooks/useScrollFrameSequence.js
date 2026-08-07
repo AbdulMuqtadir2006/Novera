@@ -4,6 +4,17 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 
 gsap.registerPlugin(ScrollTrigger);
 
+// GSAP's documented fix for scroll-linked animation jank on mobile — without
+// it, iOS/Android address-bar show/hide during scroll causes ScrollTrigger's
+// pinned sections to visibly lag or stutter before catching up. Safe to call
+// once globally; guarded so remounting the hero doesn't re-invoke it.
+let scrollNormalized = false;
+function normalizeScrollOnce() {
+  if (scrollNormalized || typeof window === "undefined") return;
+  scrollNormalized = true;
+  ScrollTrigger.normalizeScroll(true);
+}
+
 const TOTAL_FRAMES = 240;
 
 function isSmallScreen() {
@@ -72,6 +83,7 @@ export function useScrollFrameSequence(canvasRef, sectionRef, enabled = true) {
   // Draw + wire ScrollTrigger.
   useEffect(() => {
     if (!ready || !canvasRef.current || !sectionRef.current) return;
+    normalizeScrollOnce();
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d", { alpha: false });
     let dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -150,7 +162,11 @@ export function useScrollFrameSequence(canvasRef, sectionRef, enabled = true) {
       start: "top top",
       end: "+=400%",
       pin: true,
-      scrub: 0.5,
+      // true (not a number) ties the frame index exactly to scroll position
+      // with zero catch-up delay — a fractional value like 0.5 deliberately
+      // lags the animation behind the scrollbar, which read as "kicks in
+      // after a moment" rather than tracking the finger immediately.
+      scrub: true,
       onUpdate: (self) => {
         setProgress(self.progress);
         if (rafId) return;

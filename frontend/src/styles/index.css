@@ -14,11 +14,13 @@
   html {
     scroll-behavior: smooth;
     -webkit-text-size-adjust: 100%;
+    overflow-x: hidden;
   }
 
   body {
     @apply bg-ink font-body text-slate-200 antialiased;
     text-rendering: optimizeLegibility;
+    overflow-x: hidden;
   }
 
   h1,
