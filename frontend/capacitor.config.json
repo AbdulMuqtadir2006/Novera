@@ -1,0 +1,9 @@
+{
+  "appId": "online.echonova.novera",
+  "appName": "Novera",
+  "webDir": "dist",
+  "backgroundColor": "#080919",
+  "android": {
+    "backgroundColor": "#080919"
+  }
+}

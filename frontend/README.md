@@ -64,8 +64,31 @@ selected language by the backend.
 
 ## Frame sequence
 
-The 240 hero frames are in `public/frames/` as `frame_0001.jpg … frame_0240.jpg` (1280×720).
-Scrub logic: `src/hooks/useScrollFrameSequence.js`.
+The 240 hero frames are in `public/frames/` as `frame_0001.jpg … frame_0240.jpg` (1280×720,
+desktop) and `public/frames-mobile/` at the same names (720×1280, portrait — served instead on
+screens ≤767px so the hero isn't cover-cropped from a landscape composition). Scrub logic:
+`src/hooks/useScrollFrameSequence.js`.
+
+## Android app (Capacitor)
+
+This same React app is wrapped as a native Android app via [Capacitor](https://capacitorjs.com) —
+`capacitor.config.json` + the generated `android/` project (source only; `android/app/build/` and
+`android/.gradle/` are gitignored, regenerated on build).
+
+- **Building an APK**: handled by `.github/workflows/android-build.yml` — on every push touching
+  `frontend/**`, it builds the web app (`VITE_API_URL` pinned to the production API), runs
+  `npx cap sync android`, builds a debug APK with Gradle, and publishes it to the repo's
+  `latest-android-build` GitHub Release. No local Android Studio/SDK required.
+- **Local dev** (if you do have Android Studio installed): `npm run build && npx cap sync android`,
+  then `npx cap open android` to launch Studio, or `npx cap run android` with a device/emulator
+  connected.
+- **App icon / splash source**: `assets/icon.png`, `assets/icon-foreground.png`, `assets/splash.png`
+  (the logo mark on the `ink` background color). Regenerate all densities after changing these with
+  `npx capacitor-assets generate --android --iconBackgroundColor '#080919' --iconBackgroundColorDark '#080919' --splashBackgroundColor '#080919' --splashBackgroundColorDark '#080919'`.
+- **CORS note**: the Android WebView calls the API from the `https://localhost` origin (Capacitor's
+  default virtual host) — already whitelisted in the backend's `CORS_ORIGINS`.
+- This is a debug build for direct install, not signed for the Play Store. Release signing
+  (keystore + Play Store listing) is a separate step if that's ever needed.
 
 ## Notes
 
