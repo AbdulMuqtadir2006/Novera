@@ -143,7 +143,7 @@ export function FrameScrubHero() {
       <AnimatePresence>
         {scrollCueVisible && ready && (
           <motion.div
-            className="absolute inset-x-0 bottom-6 z-20 flex flex-col items-center gap-1"
+            className="absolute inset-x-0 bottom-6 z-20 flex flex-col items-center gap-1 pb-safe"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -163,7 +163,7 @@ export function FrameScrubHero() {
       </AnimatePresence>
 
       {reduced && ready && (
-        <div className="absolute inset-x-0 bottom-6 z-20 text-center">
+        <div className="absolute inset-x-0 bottom-6 z-20 pb-safe text-center">
           <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-slate-500">
             Motion reduced · showing assembled result
           </span>

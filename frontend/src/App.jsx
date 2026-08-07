@@ -5,6 +5,7 @@ import { Navbar } from "./components/layout/Navbar";
 import { Footer } from "./components/layout/Footer";
 import { ScrollToTop } from "./components/layout/ScrollToTop";
 import { RouteFallback } from "./components/ui/RouteFallback";
+import { IOSInstallBanner } from "./components/ui/IOSInstallBanner";
 import { RequireAuth } from "./components/auth/RequireAuth";
 
 // Code-split every route so the homepage doesn't pay for the app bundles.
@@ -52,6 +53,7 @@ export default function App() {
         </Suspense>
       </div>
       {!isAuthPage && <Footer />}
+      <IOSInstallBanner />
     </>
   );
 }

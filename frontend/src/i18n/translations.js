@@ -12,6 +12,9 @@ export const translations = {
     "common.loading": "Loading",
     "common.retry": "Retry",
     "common.language": "Language",
+    "install.iosTitle": "Install Novera",
+    "install.iosBody": "Tap the Share icon, then \"Add to Home Screen.\"",
+    "install.dismiss": "Dismiss",
 
     "dash.eyebrow": "Dashboard",
     "dash.title": "Your Latest Reading",
@@ -174,6 +177,9 @@ export const translations = {
     "common.loading": "جارٍ التحميل",
     "common.retry": "إعادة المحاولة",
     "common.language": "اللغة",
+    "install.iosTitle": "ثبّت Novera",
+    "install.iosBody": "اضغط على أيقونة المشاركة، ثم \"إضافة إلى الشاشة الرئيسية\".",
+    "install.dismiss": "إغلاق",
 
     "dash.eyebrow": "لوحة القياس",
     "dash.title": "أحدث قراءة لك",

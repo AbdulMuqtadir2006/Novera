@@ -8,7 +8,7 @@ const EASE = [0.16, 1, 0.3, 1];
 export function PageShell({ eyebrow, title, intro, children, wide = false }) {
   return (
     <motion.main
-      className="relative min-h-dvh pb-28 pt-28 text-depth"
+      className="relative min-h-dvh pb-[calc(7rem+env(safe-area-inset-bottom))] pt-[calc(7rem+env(safe-area-inset-top))] text-depth"
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -6 }}

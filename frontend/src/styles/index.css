@@ -108,6 +108,23 @@
   .brand-gradient {
     background-image: linear-gradient(135deg, #ec61e8 0%, #b24bd6 48%, #28cfe0 100%);
   }
+
+  /* Push content clear of a notch/Dynamic Island/curved corner/home
+     indicator once viewport-fit=cover lets the page draw under them.
+     env() resolves to 0 on devices with no inset, so these are always
+     safe to apply. */
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .pl-safe {
+    padding-left: env(safe-area-inset-left);
+  }
+  .pr-safe {
+    padding-right: env(safe-area-inset-right);
+  }
 }
 
 /* Respect reduced-motion globally: neutralise decorative animation. */

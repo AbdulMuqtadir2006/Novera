@@ -4,7 +4,11 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover lets the page draw into the notch/curved-edge safe
+         areas instead of leaving the system a default grey strip there; the
+         env(safe-area-inset-*) padding in index.css keeps real content clear
+         of the notch/home-indicator once it does. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta
       name="description"
       content="Novera — an agentic AI-driven saliva biosensor platform for non-invasive health screening. One sample. A full picture."
