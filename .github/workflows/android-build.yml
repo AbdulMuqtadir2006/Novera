@@ -26,7 +26,9 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          # Capacitor 8's Android module (capacitor.build.gradle) targets
+          # JavaVersion.VERSION_21 — building with 17 fails at compile init.
+          java-version: 21
 
       - name: Install dependencies
         run: npm ci
