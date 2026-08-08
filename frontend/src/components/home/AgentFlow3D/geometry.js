@@ -1,35 +1,69 @@
 import * as THREE from "three";
 
-// Places `count` nodes along a gentle helix wrapped around an imaginary
-// sphere of the given radius, ordered top-to-bottom in data order. This
-// reads as a directional "flow" (works for any node count, not hardcoded)
-// rather than a random scatter, while still living in the abstract 3D
-// orbit space the brief called for.
-export function helixLayout(count, radius, { turns = 1.4, poleGap = 0.22 } = {}) {
-  if (count <= 0) return [];
-  const positions = [];
-  for (let i = 0; i < count; i++) {
-    const t = count === 1 ? 0.5 : i / (count - 1);
-    // keep nodes off the exact poles so they don't visually bunch up
-    const phi = THREE.MathUtils.lerp(poleGap, Math.PI - poleGap, t);
-    const theta = t * turns * Math.PI * 2;
-    const x = radius * Math.sin(phi) * Math.cos(theta);
-    const y = radius * Math.cos(phi);
-    const z = radius * Math.sin(phi) * Math.sin(theta);
-    positions.push(new THREE.Vector3(x, y, z));
+// Deterministic small hash -> [-1, 1], used for a stable per-node z-jitter
+// (so re-renders don't reshuffle depth, but we don't need to hardcode it
+// per node either).
+function hashUnit(id) {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return (h % 1000) / 500 - 1; // -> [-1, 1)
+}
+
+// Lays out an arbitrary directed graph (nodes + {from,to} edges) as a
+// left-to-right flowchart: each node's column ("depth") is one more than
+// the deepest parent that points to it, roots start at depth 0. Nodes
+// sharing a depth are stacked vertically, centered. This is what makes a
+// "manager" node that fans out to several children read as a visible fan,
+// and it's fully data-driven — add/remove nodes or edges and the layout
+// just adapts, no hardcoded positions or node count.
+export function layeredFlowLayout(nodes, edges, { xSpacing = 2.3, ySpacing = 1.35, zJitter = 0.55 } = {}) {
+  const depth = new Map(nodes.map((n) => [n.id, 0]));
+  const ids = new Set(nodes.map((n) => n.id));
+  const validEdges = edges.filter((e) => ids.has(e.from) && ids.has(e.to));
+
+  // Relaxation pass (nodes.length iterations is enough to settle any DAG
+  // this small; a cycle just stops improving, which is an acceptable
+  // degradation rather than an infinite loop).
+  for (let pass = 0; pass < nodes.length; pass++) {
+    let changed = false;
+    for (const e of validEdges) {
+      const next = depth.get(e.from) + 1;
+      if (next > depth.get(e.to)) {
+        depth.set(e.to, next);
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+
+  const layers = new Map();
+  for (const n of nodes) {
+    const d = depth.get(n.id);
+    if (!layers.has(d)) layers.set(d, []);
+    layers.get(d).push(n.id);
+  }
+
+  const maxDepth = Math.max(0, ...Array.from(layers.keys()));
+  const positions = {};
+  for (const [d, idsInLayer] of layers) {
+    const count = idsInLayer.length;
+    idsInLayer.forEach((id, i) => {
+      const x = (d - maxDepth / 2) * xSpacing;
+      const y = (i - (count - 1) / 2) * ySpacing;
+      const z = hashUnit(id) * zJitter;
+      positions[id] = new THREE.Vector3(x, y, z);
+    });
   }
   return positions;
 }
 
-// A great-circle-ish arc between two points, bulging outward from the
-// sphere's center — the same visual language as flight-path/network-traffic
-// globes, just applied to an abstract agent-pipeline space instead of
-// geography. Longer hops arc higher than short ones.
-export function buildArcCurve(start, end, radius) {
+// A gentle 3D bow between two nodes — bows upward and slightly toward the
+// camera so edges read as cables floating in space rather than flat lines,
+// without assuming any spherical/globe layout.
+export function buildArcCurve(start, end, { lift = 0.55 } = {}) {
   const mid = start.clone().add(end).multiplyScalar(0.5);
   const dist = start.distanceTo(end);
-  const outward = mid.lengthSq() > 1e-6 ? mid.clone().normalize() : new THREE.Vector3(0, 1, 0);
-  const lift = radius * 0.32 + dist * 0.3;
-  const control = mid.add(outward.multiplyScalar(lift));
+  const bow = lift + dist * 0.16;
+  const control = mid.clone().add(new THREE.Vector3(0, bow, bow * 0.5));
   return new THREE.QuadraticBezierCurve3(start.clone(), control, end.clone());
 }

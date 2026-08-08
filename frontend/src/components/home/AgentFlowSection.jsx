@@ -8,7 +8,7 @@ export function AgentFlowSection() {
       id="agent-flow"
       eyebrow="Live Under the Hood"
       title="Watch control pass from agent to agent."
-      intro="Every reading triggers a real handoff chain — capture, analysis, insight, guidance, then your spoken summary and written report. This is that pipeline, rendered."
+      intro="Every reading runs a real handoff chain — capture, analysis, insight — into Guidance, the manager that dispatches your spoken summary, your report, and, only if a clinical threshold is crossed, a WhatsApp escalation. This is that pipeline, rendered."
     >
       <div className="glass-card relative h-[440px] overflow-hidden sm:h-[520px] md:h-[600px]">
         <div

@@ -8,7 +8,7 @@ export default function Canvas3D({ active, reducedMotion, bus }) {
   return (
     <Canvas
       dpr={[1, 2]}
-      camera={{ position: [0, 0.6, 6.4], fov: 42 }}
+      camera={{ position: [0, 1.4, 8], fov: 44 }}
       gl={{ antialias: true, alpha: true, powerPreference: "low-power" }}
       frameloop={!active ? "never" : reducedMotion ? "demand" : "always"}
     >
