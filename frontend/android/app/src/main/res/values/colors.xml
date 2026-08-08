@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand ink navy — matches frontend/tailwind.config.js `ink` and
+         capacitor.config.json backgroundColor. Overrides the AppCompat/
+         Capacitor library defaults (indigo #3F51B5/#303F9F) that were
+         leaking through as a blue strip in the Android Recents/task-switcher
+         view, since colorPrimary is what ActivityManager.TaskDescription
+         falls back to when not set explicitly. -->
+    <color name="colorPrimary">#080919</color>
+    <color name="colorPrimaryDark">#080919</color>
+    <color name="colorAccent">#28CFE0</color>
+</resources>

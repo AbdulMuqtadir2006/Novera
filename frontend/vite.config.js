@@ -56,6 +56,7 @@ export default defineConfig({
           motion: ["framer-motion", "gsap"],
           charts: ["recharts"],
           pdf: ["jspdf", "html2canvas"],
+          three: ["three", "@react-three/fiber", "@react-three/drei"],
         },
       },
     },

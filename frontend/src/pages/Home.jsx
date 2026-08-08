@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import { FrameScrubHero } from "../components/home/FrameScrubHero";
 import { ExplanationSection } from "../components/home/ExplanationSection";
 import { AgentsSection } from "../components/home/AgentsSection";
+import { AgentFlowSection } from "../components/home/AgentFlowSection";
 import { HealthAreasSection } from "../components/home/HealthAreasSection";
 import { HowItWorksSection } from "../components/home/HowItWorksSection";
 import { CtaSection } from "../components/home/CtaSection";
@@ -32,6 +33,7 @@ export default function Home() {
         <div className="relative">
           <ExplanationSection />
           <AgentsSection />
+          <AgentFlowSection />
           <HealthAreasSection />
           <HowItWorksSection />
           <CtaSection />
