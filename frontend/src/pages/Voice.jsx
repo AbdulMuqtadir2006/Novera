@@ -13,8 +13,18 @@ export default function Voice() {
   const [source, setSource] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const { supported, speaking, paused, charIndex, hasVoiceForLang, play, pause, resume, stop } =
-    useSpeech(script, lang);
+  const {
+    supported,
+    speaking,
+    paused,
+    charIndex,
+    boundaryPulse,
+    hasVoiceForLang,
+    play,
+    pause,
+    resume,
+    stop,
+  } = useSpeech(script, lang);
 
   // (Re)generate the script whenever the language changes.
   useEffect(() => {
@@ -42,7 +52,7 @@ export default function Voice() {
     <PageShell eyebrow={t("voice.eyebrow")} title={t("voice.title")} intro={t("voice.intro")}>
       <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr] lg:items-start">
         <div className="light-card flex flex-col items-center gap-8 p-8">
-          <VoiceOrb active={active} />
+          <VoiceOrb active={active} pulseKey={boundaryPulse} />
 
           {loading ? (
             <AgentThinking />

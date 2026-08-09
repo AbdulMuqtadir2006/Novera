@@ -14,6 +14,10 @@ export function useSpeech(text, lang = "en") {
   const [paused, setPaused] = useState(false);
   const [charIndex, setCharIndex] = useState(0);
   const [hasVoiceForLang, setHasVoiceForLang] = useState(true);
+  // Increments on every real Web Speech `boundary` event (word/sentence,
+  // engine-dependent) — a genuine timing signal a waveform can react to,
+  // distinct from charIndex which drives the transcript highlight.
+  const [boundaryPulse, setBoundaryPulse] = useState(0);
   const utterRef = useRef(null);
 
   const pickVoice = useCallback(() => {
@@ -33,6 +37,7 @@ export function useSpeech(text, lang = "en") {
     setSpeaking(false);
     setPaused(false);
     setCharIndex(0);
+    setBoundaryPulse(0);
   }, [supported]);
 
   const play = useCallback(() => {
@@ -62,6 +67,7 @@ export function useSpeech(text, lang = "en") {
     };
     u.onboundary = (e) => {
       if (typeof e.charIndex === "number") setCharIndex(e.charIndex);
+      setBoundaryPulse((p) => p + 1);
     };
 
     utterRef.current = u;
@@ -96,5 +102,16 @@ export function useSpeech(text, lang = "en") {
     };
   }, [supported]);
 
-  return { supported, speaking, paused, charIndex, hasVoiceForLang, play, pause, resume, stop };
+  return {
+    supported,
+    speaking,
+    paused,
+    charIndex,
+    boundaryPulse,
+    hasVoiceForLang,
+    play,
+    pause,
+    resume,
+    stop,
+  };
 }
