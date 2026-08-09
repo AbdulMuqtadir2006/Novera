@@ -1,31 +1,43 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  MessageCircle, Send, Loader2, MapPin, Phone, CalendarCheck, Brain, Sparkles, ExternalLink,
+  MessageCircle, Send, Loader2, MapPin, Phone, CalendarCheck, Brain, Sparkles, ExternalLink, TriangleAlert,
 } from "lucide-react";
 import { PageShell } from "../components/layout/PageShell";
 import {
-  sendAppointmentOffer, replyAppointment, getBookings, getClinic, predictOrgan,
+  sendAppointmentOffer, replyAppointment, getBookings, getClinic, streamPredictOrgan,
 } from "../lib/api";
 import { useLang } from "../i18n/LanguageContext";
 import { useAuth } from "../auth/AuthContext";
+import { PipelineVisualizer } from "../components/appointments/PipelineVisualizer";
 
 const ORGAN_COLORS = { KIDNEY: "#28CFE0", STOMACH: "#F2A93E", ORAL: "#3DDC97" };
 
 function OrganAnalysis({ t }) {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [steps, setSteps] = useState({});
+  const [error, setError] = useState(null);
 
   const run = async () => {
     setLoading(true);
+    setError(null);
+    setResult(null);
+    setSteps({});
     try {
-      setResult(await predictOrgan());
-    } catch {
-      setResult({ error: true });
+      const r = await streamPredictOrgan((event) => {
+        if (event.step === "done") return;
+        setSteps((prev) => ({ ...prev, [event.step]: event.status }));
+      });
+      setResult(r);
+    } catch (err) {
+      setError(err.message || t("appt.analysisFailed"));
     } finally {
       setLoading(false);
     }
   };
+
+  const showPipeline = loading || Object.keys(steps).length > 0;
 
   return (
     <div className="light-card p-6">
@@ -38,7 +50,20 @@ function OrganAnalysis({ t }) {
         {loading ? t("appt.analysing") : t("appt.runAnalysis")}
       </button>
 
-      {result && !result.error && (
+      {showPipeline && (
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mt-5">
+          <PipelineVisualizer steps={steps} />
+        </motion.div>
+      )}
+
+      {error && (
+        <div className="mt-4 flex items-start gap-2 rounded-xl border border-status-attention/30 bg-status-attention/10 p-3 text-sm text-status-attention">
+          <TriangleAlert size={16} className="mt-0.5 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {result && (
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mt-5">
           <div className="flex items-baseline justify-between">
             <span className="font-mono text-[11px] uppercase tracking-wide text-depth/45">{t("appt.predicted")}</span>

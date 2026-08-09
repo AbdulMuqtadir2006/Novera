@@ -123,40 +123,92 @@ def decide(reading: dict[str, Any], specialist_results: list[dict[str, Any]]) ->
     return decision, actual_model, raw_result
 
 
-def process_case(reading: dict[str, Any]) -> dict[str, Any]:
-    """Full pipeline for one screening case: validate -> score -> decide -> persist/release.
+def process_case_stream(reading: dict[str, Any]):
+    """Same pipeline as process_case, but a generator: yields one event after
+    each real step actually completes (validate, score per organ, decide,
+    persist/release), for a workflow visualizer driven by real backend
+    progress rather than a decorative timer. The last event is always
+    {"step": "done", "status": ..., "result": ...} carrying exactly what
+    process_case() used to return directly.
 
     On any OpenRouter failure the case is released back to NEW with no saved
     prediction and no invented reason (req 8) — the caller sees RETRY_REQUIRED.
     """
     errors = scoring.validate_reading(reading)
     if errors:
-        scoring.mark_retest_required(reading["id"], "; ".join(errors))
-        return {"status": "RETEST_REQUIRED", "case_id": reading["case_id"], "reason": "; ".join(errors)}
+        reason = "; ".join(errors)
+        yield {"step": "validate", "status": "failed", "detail": reason}
+        scoring.mark_retest_required(reading["id"], reason)
+        yield {
+            "step": "done",
+            "status": "failed",
+            "result": {"status": "RETEST_REQUIRED", "case_id": reading["case_id"], "reason": reason},
+        }
+        return
+    yield {"step": "validate", "status": "passed"}
 
     values = {biomarker: float(reading[biomarker]) for biomarker in scoring.BIOMARKERS}
     engine = scoring.get_engine()
-    specialist_results = [engine.evaluate(organ, values) for organ in scoring.ORGANS]
+    specialist_results = []
+    for organ in scoring.ORGANS:
+        result = engine.evaluate(organ, values)
+        specialist_results.append(result)
+        yield {
+            "step": f"score:{organ}",
+            "status": "passed",
+            "detail": {"combined_score": result["combined_score"], "flag": result["flag"]},
+        }
 
+    yield {"step": "decide", "status": "running"}
     try:
         decision, model, raw_result = decide(reading, specialist_results)
     except OpenRouterDecisionError:
         scoring.release_reading(reading["id"])
-        return {
-            "status": "RETRY_REQUIRED",
-            "case_id": reading["case_id"],
-            "message": "The AI decision was not saved. The case remains NEW; check the OpenRouter key/model access and try again.",
+        yield {"step": "decide", "status": "failed"}
+        yield {
+            "step": "done",
+            "status": "failed",
+            "result": {
+                "status": "RETRY_REQUIRED",
+                "case_id": reading["case_id"],
+                "message": "The AI decision was not saved. The case remains NEW; check the OpenRouter key/model access and try again.",
+            },
         }
+        return
+    yield {
+        "step": "decide",
+        "status": "passed",
+        "detail": {"prediction": decision["prediction"], "confidence": decision["confidence"]},
+    }
 
     scoring.persist_decision(reading, decision, specialist_results, model, raw_result)
-    return {
-        "status": "PROCESSED",
-        "case_id": reading["case_id"],
-        "ai_prediction": decision["prediction"],
-        "ai_confidence": decision["confidence"],
-        "ai_reason": decision["reason"],
-        "specialist_results": specialist_results,
+    yield {"step": "persist", "status": "passed"}
+    yield {
+        "step": "done",
+        "status": "passed",
+        "result": {
+            "status": "PROCESSED",
+            "case_id": reading["case_id"],
+            "ai_prediction": decision["prediction"],
+            "ai_confidence": decision["confidence"],
+            "ai_reason": decision["reason"],
+            "specialist_results": specialist_results,
+        },
     }
+
+
+def process_case(reading: dict[str, Any]) -> dict[str, Any]:
+    """Full pipeline for one screening case: validate -> score -> decide -> persist/release.
+
+    Thin wrapper over process_case_stream() for callers that only want the
+    final result — unchanged behavior/signature for existing callers.
+    """
+    final_result: dict[str, Any] | None = None
+    for event in process_case_stream(reading):
+        if event["step"] == "done":
+            final_result = event["result"]
+    assert final_result is not None, "process_case_stream must always yield a final 'done' event"
+    return final_result
 
 
 def process_latest() -> dict[str, Any]:

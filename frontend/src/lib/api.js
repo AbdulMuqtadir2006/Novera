@@ -58,6 +58,74 @@ export const resetChat = () => req("/chat", { method: "DELETE" });
 
 // Agentic extras (via the Python LangGraph service)
 export const predictOrgan = () => req("/predict-organ", { method: "POST", body: "{}" });
+
+// Same screening pipeline as predictOrgan(), streamed as real backend events
+// (validate/score-per-organ/decide/persist, each only after it actually
+// happens) — for a workflow visualizer driven by genuine progress, not a
+// timer. A plain POST (not native EventSource, which can't send the
+// Authorization header) — the body is read and parsed as SSE by hand.
+// onEvent fires once per step; the returned promise resolves with the same
+// final result shape predictOrgan() returns, or rejects on pipeline failure.
+export async function streamPredictOrgan(onEvent) {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/api/predict-organ/stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: "{}",
+  });
+  if (!res.ok || !res.body) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Request failed: ${res.status}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalStatus = null;
+  let finalResult = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const chunks = buffer.split("\n\n");
+    buffer = chunks.pop() || "";
+    for (const chunk of chunks) {
+      const line = chunk.trim();
+      if (!line.startsWith("data:")) continue;
+      let event;
+      try {
+        event = JSON.parse(line.slice(5).trim());
+      } catch {
+        continue;
+      }
+      onEvent?.(event);
+      if (event.step === "done") {
+        finalStatus = event.status;
+        finalResult = event.result;
+      }
+    }
+  }
+
+  if (finalStatus !== "passed") {
+    const err = new Error(finalResult?.message || finalResult?.reason || "Screening pipeline failed");
+    err.result = finalResult;
+    throw err;
+  }
+  // Normalize to the same shape predictOrgan() returns, so callers don't
+  // need to know about the backend's internal ai_* field names.
+  return {
+    prediction: finalResult.ai_prediction,
+    confidence: finalResult.ai_confidence,
+    reason: finalResult.ai_reason,
+    source: "ai",
+    case_id: finalResult.case_id,
+    specialist_results: finalResult.specialist_results,
+  };
+}
 export const getClinic = () => req("/clinic");
 export const sendAppointmentOffer = (opts = {}) =>
   req("/appointment/offer", { method: "POST", body: JSON.stringify(opts) });
