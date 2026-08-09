@@ -8,6 +8,7 @@ import { generateReportPdf } from "../components/reports/generateReportPdf";
 import { metricMeta, statusMeta, formatValue } from "../lib/format";
 import { useLang } from "../i18n/LanguageContext";
 import { Wordmark } from "../components/ui/Wordmark";
+import { AgentThinking } from "../components/ui/AgentThinking";
 
 const METRIC_KEYS = ["ph", "creatinine", "urea", "temperature"];
 
@@ -150,9 +151,7 @@ export default function Reports() {
         <div>
           {busy ? (
             <div className="light-card flex h-96 items-center justify-center">
-              <p className="flex items-center gap-2 text-depth/60">
-                <Loader2 size={18} className="animate-spin" /> {t("reports.generating")}
-              </p>
+              <AgentThinking />
             </div>
           ) : (
             <PrintableReport reading={reading} report={report} lang={lang} t={t} docRef={docRef} />

@@ -76,7 +76,11 @@ export function PipelineVisualizer({ steps }) {
 
   return (
     <div className="rounded-2xl border border-signal/15 bg-mist/50 p-4 sm:p-5">
-      <div className="flex items-start">
+      {/* Six nodes + connectors don't fit a phone width — scroll the diagram
+          in its own track rather than let the page's blanket overflow-x:
+          hidden silently clip nodes off the right edge. */}
+      <div className="overflow-x-auto pb-1">
+        <div className="flex w-max min-w-full items-start">
         <NodeDot label={t("appt.stepValidate")} state={s("validate")} />
         <Connector active={s("validate") !== "idle"} failed={s("validate") === "failed"} />
 
@@ -93,8 +97,9 @@ export function PipelineVisualizer({ steps }) {
 
         <Connector active={scoreGroupState !== "idle"} failed={scoreGroupState === "failed"} />
         <NodeDot label={t("appt.stepDecide")} state={s("decide")} />
-        <Connector active={s("decide") === "passed" || s("persist") !== "idle"} failed={s("decide") === "failed"} />
-        <NodeDot label={t("appt.stepPersist")} state={s("persist")} />
+          <Connector active={s("decide") === "passed" || s("persist") !== "idle"} failed={s("decide") === "failed"} />
+          <NodeDot label={t("appt.stepPersist")} state={s("persist")} />
+        </div>
       </div>
     </div>
   );
