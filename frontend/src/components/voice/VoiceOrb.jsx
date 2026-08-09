@@ -2,89 +2,109 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { usePrefersReducedMotion } from "../../hooks/usePrefersReducedMotion";
 
-// interpolate cyan -> magenta -> purple around the ring
-function barColor(tpos) {
-  const stops = [
-    [40, 207, 224],
-    [236, 97, 232],
-    [178, 75, 214],
-    [40, 207, 224],
-  ];
-  const seg = tpos * (stops.length - 1);
-  const i = Math.floor(seg);
-  const f = seg - i;
-  const a = stops[i];
-  const b = stops[Math.min(i + 1, stops.length - 1)];
-  const c = a.map((v, k) => Math.round(v + (b[k] - v) * f));
-  return `rgb(${c[0]},${c[1]},${c[2]})`;
+const SIZE = 288; // matches h-72 w-72
+const CENTER = SIZE / 2;
+const BASE_R = 118;
+const POINTS = 120; // enough segments that straight lines already read as a smooth curve
+
+// A closed polar curve r(θ) = BASE_R + energy * Σ harmonic sine waves. Summing
+// a handful of fixed-phase sinusoids gives a naturally smooth, organic
+// wobble with no per-point smoothing math needed — at energy 0 it's a
+// perfect circle, exactly centered (unlike the old radial-bar version, whose
+// rotate+translate math pivoted around each bar's *bottom* edge instead of
+// the sphere's true center).
+function makeHarmonics() {
+  return Array.from({ length: 4 }, () => ({
+    freq: 2 + Math.floor(Math.random() * 4), // 2..5 lobes
+    amp: 9 + Math.random() * 16, // px, before the energy scale — sized to read as clearly reactive at energy 1, not a faint ripple
+    phase: Math.random() * Math.PI * 2,
+  }));
 }
 
-const BAR_COUNT = 44;
-const RADIUS = 118;
+function buildPath(harmonics, energy) {
+  let d = "";
+  for (let i = 0; i <= POINTS; i++) {
+    const theta = (i / POINTS) * Math.PI * 2;
+    let r = BASE_R;
+    for (const h of harmonics) r += energy * h.amp * Math.sin(h.freq * theta + h.phase);
+    const x = CENTER + r * Math.cos(theta);
+    const y = CENTER + r * Math.sin(theta);
+    d += `${i === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)} `;
+  }
+  return d + "Z";
+}
 
-// Positioning (rotate + radial offset) is a plain, never-animated div — a
-// literal `transform` string here would otherwise be clobbered by
-// framer-motion, which generates its own `transform` from any motion-managed
-// scale/rotate style on the same element and overwrites the whole property
-// rather than composing with it. `energy` (0..1, real word-boundary-driven,
-// see VoiceOrb) reaches each bar as a plain number prop and drives the
-// declarative `animate` prop — the same pattern already used everywhere else
-// in this app, not an imperative MotionValue.
-function Bar({ angle, color, peak, lag, energy, reduced }) {
+// Circular waveform ring — replaces the old 44-bar equalizer. `energyRef` is
+// read every animation frame (not React state) so the curve eases smoothly
+// toward the real energy target via direct DOM mutation, the same
+// rAF-driven pattern AmbientBackground already uses elsewhere in this app,
+// rather than relying on per-render React updates.
+function CircularWave({ energyRef, reduced }) {
+  const pathRef = useRef(null);
+  const displayRef = useRef(0);
+  const harmonics = useMemo(makeHarmonics, []);
+
+  useEffect(() => {
+    if (!pathRef.current) return;
+    if (reduced) {
+      pathRef.current.setAttribute("d", buildPath(harmonics, 0));
+      return;
+    }
+    let raf;
+    const tick = () => {
+      displayRef.current += (energyRef.current - displayRef.current) * 0.12;
+      pathRef.current.setAttribute("d", buildPath(harmonics, displayRef.current));
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [reduced, harmonics, energyRef]);
+
   return (
-    <div
-      className="absolute left-1/2 top-1/2 w-[3px]"
-      style={{
-        height: 26,
-        marginLeft: -1.5,
-        transform: `rotate(${angle}deg) translateY(-${RADIUS}px)`,
-        transformOrigin: "center bottom",
-      }}
+    <svg
+      width={SIZE}
+      height={SIZE}
+      viewBox={`0 0 ${SIZE} ${SIZE}`}
+      className="absolute inset-0 overflow-visible"
+      aria-hidden="true"
     >
-      <motion.span
-        className="block h-full w-full rounded-full"
-        style={{
-          background: `linear-gradient(to top, ${color}00, ${color})`,
-          transformOrigin: "center bottom",
-        }}
-        animate={{ scaleY: reduced ? 0.24 : 0.24 + energy * peak }}
-        transition={{ type: "spring", stiffness: 260, damping: 18 + lag * 20 }}
+      <defs>
+        <linearGradient id="voiceWaveGradient" x1="0" y1="0" x2={SIZE} y2={SIZE} gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#28CFE0" />
+          <stop offset="50%" stopColor="#EC61E8" />
+          <stop offset="100%" stopColor="#B24BD6" />
+        </linearGradient>
+      </defs>
+      <path
+        ref={pathRef}
+        fill="none"
+        stroke="url(#voiceWaveGradient)"
+        strokeWidth={2}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        opacity={0.85}
       />
-    </div>
-  );
-}
-
-function Equalizer({ energy, reduced }) {
-  const bars = useMemo(
-    () =>
-      Array.from({ length: BAR_COUNT }, (_, i) => ({
-        angle: (i / BAR_COUNT) * 360,
-        color: barColor(i / BAR_COUNT),
-        peak: 0.6 + Math.random() * 1.5,
-        lag: Math.random(),
-      })),
-    []
-  );
-  return (
-    <div className="absolute inset-0">
-      {bars.map((b, i) => (
-        <Bar key={i} {...b} energy={energy} reduced={reduced} />
-      ))}
-    </div>
+    </svg>
   );
 }
 
 // Interactive voice-agent orb. Rotating aurora blobs (ambient chrome) + a
-// core sphere and circular equalizer whose amplitude is driven by a single
-// `energy` value (0..1): kicked up on every real Web Speech `boundary` event
-// (`pulseKey` changing) and left to decay back down between words. When no
-// boundary events land for a beat (voice/browser without word-boundary
-// support) it settles into a slow ambient breathing state instead of
-// freezing dead, so silence-vs-no-signal isn't misread as "broken."
+// core sphere and a circular waveform ring whose amplitude is driven by a
+// single `energy` value (0..1): kicked up on every real Web Speech
+// `boundary` event (`pulseKey` changing) and left to decay back down
+// between words. When no boundary events land for a beat (voice/browser
+// without word-boundary support) it settles into a slow ambient breathing
+// state instead of freezing dead, so silence-vs-no-signal isn't misread as
+// "broken."
 export function VoiceOrb({ active, pulseKey = 0 }) {
   const reduced = usePrefersReducedMotion();
   const [energy, setEnergy] = useState(0);
+  const energyRef = useRef(0);
   const lastPulseAt = useRef(0);
+
+  useEffect(() => {
+    energyRef.current = energy;
+  }, [energy]);
 
   useEffect(() => {
     if (!active) return;
@@ -147,7 +167,7 @@ export function VoiceOrb({ active, pulseKey = 0 }) {
         />
       )}
 
-      <Equalizer energy={energy} reduced={reduced} />
+      <CircularWave energyRef={energyRef} reduced={reduced} />
 
       {/* core sphere */}
       <motion.div
