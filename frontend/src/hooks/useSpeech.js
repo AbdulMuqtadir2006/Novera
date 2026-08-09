@@ -18,7 +18,15 @@ export function useSpeech(text, lang = "en") {
   // engine-dependent) — a genuine timing signal a waveform can react to,
   // distinct from charIndex which drives the transcript highlight.
   const [boundaryPulse, setBoundaryPulse] = useState(0);
+  // Some voices (observed with Arabic-script text on Windows SAPI voices,
+  // even when a voice/lang is explicitly assigned) fire start->end within a
+  // few ms without producing any audio at all, instead of onerror — the API
+  // reports "success" for an utterance that was never actually spoken.
+  // Track this so callers can show a real failure state instead of a
+  // transcript that "finishes" instantly.
+  const [failed, setFailed] = useState(false);
   const utterRef = useRef(null);
+  const startedAtRef = useRef(0);
 
   const pickVoice = useCallback(() => {
     const voices = window.speechSynthesis.getVoices();
@@ -38,11 +46,13 @@ export function useSpeech(text, lang = "en") {
     setPaused(false);
     setCharIndex(0);
     setBoundaryPulse(0);
+    setFailed(false);
   }, [supported]);
 
   const play = useCallback(() => {
     if (!supported || !text) return;
     window.speechSynthesis.cancel();
+    setFailed(false);
 
     const u = new SpeechSynthesisUtterance(text);
     u.rate = 0.98;
@@ -53,15 +63,26 @@ export function useSpeech(text, lang = "en") {
     setHasVoiceForLang(lang === "ar" ? !!voice : true);
 
     u.onstart = () => {
+      startedAtRef.current = performance.now();
       setSpeaking(true);
       setPaused(false);
     };
     u.onend = () => {
+      // An implausibly short "completion" for non-trivial text means the
+      // engine never actually spoke it — real (paused/short) completions of
+      // short text don't hit this because text.length > 20 gates it.
+      const elapsed = performance.now() - startedAtRef.current;
+      if (elapsed < 250 && text.length > 20) {
+        setFailed(true);
+        setCharIndex(0);
+      } else {
+        setCharIndex(text.length);
+      }
       setSpeaking(false);
       setPaused(false);
-      setCharIndex(text.length);
     };
     u.onerror = () => {
+      setFailed(true);
       setSpeaking(false);
       setPaused(false);
     };
@@ -109,6 +130,7 @@ export function useSpeech(text, lang = "en") {
     charIndex,
     boundaryPulse,
     hasVoiceForLang,
+    failed,
     play,
     pause,
     resume,

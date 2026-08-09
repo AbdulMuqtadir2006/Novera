@@ -73,7 +73,8 @@ export const translations = {
     "voice.speaking": "Speaking",
     "voice.paused": "Paused",
     "voice.unsupported": "Speech synthesis isn't available in this browser.",
-    "voice.noArabicVoice": "No Arabic system voice found — text shown, playback may use a default voice.",
+    "voice.noArabicVoice": "No Arabic system voice found on this device — playback may fail; the transcript below is always accurate.",
+    "voice.playbackFailed": "Playback failed on this device — read the transcript below instead.",
 
     "selfcare.eyebrow": "Self Care",
     "selfcare.title": "Your plan & coach",
@@ -251,7 +252,8 @@ export const translations = {
     "voice.speaking": "يتحدث",
     "voice.paused": "متوقف",
     "voice.unsupported": "تحويل النص إلى كلام غير متاح في هذا المتصفح.",
-    "voice.noArabicVoice": "لم يُعثر على صوت عربي في النظام — يُعرض النص وقد يُستخدم صوت افتراضي.",
+    "voice.noArabicVoice": "لم يُعثر على صوت عربي في هذا الجهاز — قد يفشل التشغيل الصوتي؛ النص أدناه دقيق دائماً.",
+    "voice.playbackFailed": "فشل التشغيل الصوتي على هذا الجهاز — اقرأ النص أدناه بدلاً من ذلك.",
 
     "selfcare.eyebrow": "العناية الذاتية",
     "selfcare.title": "خطتك ومدربك",

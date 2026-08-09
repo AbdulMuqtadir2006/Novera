@@ -20,6 +20,7 @@ export default function Voice() {
     charIndex,
     boundaryPulse,
     hasVoiceForLang,
+    failed,
     play,
     pause,
     resume,
@@ -93,7 +94,12 @@ export default function Voice() {
             <Volume2 size={14} />
             {active ? t("voice.speaking") : paused ? t("voice.paused") : t("voice.idle")}
           </p>
-          {supported && lang === "ar" && !hasVoiceForLang && speaking && (
+          {failed && (
+            <p className="flex items-center gap-1.5 text-center text-xs font-medium text-status-attention">
+              <TriangleAlert size={13} /> {t("voice.playbackFailed")}
+            </p>
+          )}
+          {supported && lang === "ar" && !hasVoiceForLang && !failed && (
             <p className="text-center text-xs text-status-watch">{t("voice.noArabicVoice")}</p>
           )}
         </div>
