@@ -16,6 +16,11 @@ export const translations = {
     "install.iosBody": "Tap the Share icon, then \"Add to Home Screen.\"",
     "install.dismiss": "Dismiss",
 
+    "thinking.capture": "Reading your latest sample",
+    "thinking.analysis": "Cross-referencing biomarkers",
+    "thinking.insight": "Turning analysis into plain language",
+    "thinking.guidance": "Composing your result",
+
     "dash.eyebrow": "Dashboard",
     "dash.title": "Your Latest Reading",
     "dash.latestValue": "Most recent value",
@@ -219,6 +224,11 @@ export const translations = {
     "reports.biomarker": "المؤشر",
     "reports.aiBadge": "مُنشأ بالذكاء الاصطناعي",
     "reports.fallbackBadge": "ملخص دون اتصال",
+
+    "thinking.capture": "قراءة عيّنتك الأخيرة",
+    "thinking.analysis": "مطابقة المؤشرات الحيوية",
+    "thinking.insight": "تحويل التحليل إلى لغة واضحة",
+    "thinking.guidance": "تجهيز نتيجتك",
 
     "voice.eyebrow": "الصوت",
     "voice.title": "استمع إلى ملخصك",

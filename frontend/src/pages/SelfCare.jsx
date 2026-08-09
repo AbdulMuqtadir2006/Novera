@@ -7,6 +7,7 @@ import { healthAreaById } from "../data/healthAreas";
 import { statusMeta } from "../lib/format";
 import { useLang } from "../i18n/LanguageContext";
 import { MealTimeline } from "../components/selfcare/MealTimeline";
+import { AgentThinking } from "../components/ui/AgentThinking";
 
 const MEALS = ["breakfast", "lunch", "dinner", "snacks", "hydration"];
 
@@ -154,9 +155,7 @@ export default function SelfCare() {
         <div className="space-y-6">
           {loading || !plan ? (
             <div className="light-card flex h-72 items-center justify-center">
-              <p className="flex items-center gap-2 text-depth/60">
-                <Loader2 size={18} className="animate-spin" /> {t("selfcare.generating")}
-              </p>
+              <AgentThinking />
             </div>
           ) : (
             <>

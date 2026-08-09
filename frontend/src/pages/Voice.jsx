@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Play, Pause, RotateCcw, Volume2, TriangleAlert, Loader2, Sparkles } from "lucide-react";
+import { Play, Pause, RotateCcw, Volume2, TriangleAlert, Sparkles } from "lucide-react";
 import { PageShell } from "../components/layout/PageShell";
 import { VoiceOrb } from "../components/voice/VoiceOrb";
+import { AgentThinking } from "../components/ui/AgentThinking";
 import { useSpeech } from "../hooks/useSpeech";
 import { getVoiceScript } from "../lib/api";
 import { useLang } from "../i18n/LanguageContext";
@@ -44,9 +45,7 @@ export default function Voice() {
           <VoiceOrb active={active} />
 
           {loading ? (
-            <p className="flex items-center gap-2 text-sm text-depth/60">
-              <Loader2 size={16} className="animate-spin" /> {t("voice.generating")}
-            </p>
+            <AgentThinking />
           ) : supported ? (
             <div className="flex flex-wrap items-center justify-center gap-3">
               {!speaking && (
