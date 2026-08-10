@@ -195,6 +195,11 @@ it's a standalone static page).
 - `frontend/src/pages/` — one file per route.
 - `frontend/src/hooks/useScrollFrameSequence.js` — GSAP scroll-scrub hero logic (desktop + mobile
   frame sets).
+- `hardware/esp32_sensor/` — wireless ESP32 sketch that POSTs straight to `POST /api/readings` over
+  WiFi (no laptop/browser in the loop). Currently sends dummy randomized values in the dashboard's
+  reference bands — no sensors wired up yet; see that folder's README for how to swap in real
+  sensor reads later. Needed zero backend/frontend changes since `/api/readings` already accepts a
+  partial JSON body.
 
 ## Constraints and gotchas (hard-won, don't rediscover these)
 
