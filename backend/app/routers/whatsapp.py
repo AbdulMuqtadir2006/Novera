@@ -27,7 +27,9 @@ def verify(request: Request):
 
 def _valid_signature(raw: bytes, header: str) -> bool:
     if not config.META_APP_SECRET:
-        return True  # signature checking disabled when no app secret is set
+        # Fail closed: with no app secret configured, authenticity can't be
+        # verified at all, so reject rather than silently trust everything.
+        return False
     expected = "sha256=" + hmac.new(config.META_APP_SECRET.encode(), raw, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, header or "")
 

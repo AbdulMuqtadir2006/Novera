@@ -1,16 +1,18 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from .. import security
 from ..deps import get_token, require_user
+from ..rate_limit import limiter
 from ..schemas import LoginReq, SignupReq
 
 router = APIRouter()
 
 
 @router.post("/signup", status_code=201)
-def signup(body: SignupReq):
+@limiter.limit("10/hour")
+def signup(request: Request, body: SignupReq):
     try:
         user = security.create_user(body.name, body.email, body.password, body.phone)
     except security.AuthError as exc:
@@ -20,7 +22,8 @@ def signup(body: SignupReq):
 
 
 @router.post("/login")
-def login(body: LoginReq):
+@limiter.limit("5/minute")
+def login(request: Request, body: LoginReq):
     user = security.authenticate(body.email, body.password)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid email or password")

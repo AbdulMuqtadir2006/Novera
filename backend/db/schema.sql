@@ -136,6 +136,16 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Session expiry (security audit 2026-08-10 — tokens never expired before
+-- this). Nullable add + backfill + NOT NULL keeps this idempotent and safe
+-- to run against a table that already has rows.
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+UPDATE sessions SET expires_at = created_at + INTERVAL '30 days' WHERE expires_at IS NULL;
+ALTER TABLE sessions ALTER COLUMN expires_at SET NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_sessions_expires_at
+    ON sessions (expires_at);
+
 -- ---------------------------------------------------------------------------
 -- Appointments (WhatsApp booking) — replaces the old appointments.json file.
 -- ---------------------------------------------------------------------------

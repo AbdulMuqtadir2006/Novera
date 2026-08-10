@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from .. import db
 from ..core import reference_data, scoring, screening_llm
+from ..deps import require_user
 
 router = APIRouter()
 
@@ -41,7 +42,7 @@ def _claim_new_screening_case():
 
 
 @router.post("/predict-organ")
-def predict_organ():
+def predict_organ(user: dict = Depends(require_user)):
     """Deep AI analysis: runs the deterministic screening pipeline
     (reference-range score + similarity score + exactly one OpenRouter call,
     req 5) on the dashboard's latest reading, and persists it as a real
@@ -64,7 +65,7 @@ def predict_organ():
 
 
 @router.post("/predict-organ/stream")
-def predict_organ_stream():
+def predict_organ_stream(user: dict = Depends(require_user)):
     """Same pipeline as /predict-organ, streamed as Server-Sent Events — one
     real event per pipeline step (validate, score per organ, decide,
     persist/release) as it actually happens, for a workflow visualizer driven

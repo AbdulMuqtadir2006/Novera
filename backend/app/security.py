@@ -9,6 +9,7 @@ from __future__ import annotations
 import hmac
 import re
 import secrets
+from datetime import datetime, timedelta, timezone
 from hashlib import scrypt
 from typing import Optional
 
@@ -16,6 +17,7 @@ from . import db
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _PHONE_RE = re.compile(r"^\+\d{8,15}$")
+SESSION_LIFETIME = timedelta(days=30)
 
 
 class AuthError(ValueError):
@@ -97,9 +99,10 @@ def authenticate(email: str, password: str) -> Optional[dict]:
 
 def create_session(user_id: int) -> str:
     token = secrets.token_hex(32)
+    expires_at = datetime.now(timezone.utc) + SESSION_LIFETIME
     db.execute(
-        "INSERT INTO sessions (token, user_id) VALUES (%s, %s)",
-        (token, user_id),
+        "INSERT INTO sessions (token, user_id, expires_at) VALUES (%s, %s, %s)",
+        (token, user_id, expires_at),
     )
     return token
 
@@ -111,7 +114,7 @@ def get_user_by_token(token: Optional[str]) -> Optional[dict]:
         """
         SELECT u.* FROM sessions s
         JOIN users u ON u.id = s.user_id
-        WHERE s.token = %s
+        WHERE s.token = %s AND s.expires_at > now()
         """,
         (token,),
     )

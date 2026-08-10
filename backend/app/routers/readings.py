@@ -3,10 +3,11 @@ from __future__ import annotations
 import random
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from .. import db
 from ..core import reference_data
+from ..deps import require_user
 from ..schemas import ReadingIn
 
 router = APIRouter()
@@ -22,7 +23,7 @@ def _jitter(base: float, amp: float, dp: int) -> float:
 
 
 @router.get("/readings/latest")
-def latest():
+def latest(user: dict = Depends(require_user)):
     row = reference_data.get_latest_row()
     if not row:
         raise HTTPException(status_code=404, detail="no readings")
@@ -30,7 +31,7 @@ def latest():
 
 
 @router.get("/readings")
-def history(days: int = 30):
+def history(days: int = 30, user: dict = Depends(require_user)):
     days = max(1, min(365, days))
     rows = db.fetch_all(
         'SELECT * FROM readings ORDER BY "timestamp" DESC, id DESC LIMIT %s',

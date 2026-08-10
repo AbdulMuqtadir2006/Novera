@@ -2,22 +2,23 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from .. import db
 from ..core import reference_data
+from ..deps import require_user
 from ..schemas import PatientContextIn
 
 router = APIRouter()
 
 
 @router.get("/patient-context")
-def get_context():
+def get_context(user: dict = Depends(require_user)):
     return reference_data.get_context()
 
 
 @router.post("/patient-context")
-def save_context(body: PatientContextIn):
+def save_context(body: PatientContextIn, user: dict = Depends(require_user)):
     db.execute(
         """
         UPDATE patient_context

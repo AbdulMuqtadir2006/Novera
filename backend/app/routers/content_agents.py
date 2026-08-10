@@ -2,17 +2,18 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from .. import db
 from ..core import content_llm, reference_data
+from ..deps import require_user
 from ..schemas import ChatSendReq, LangReq
 
 router = APIRouter()
 
 
 @router.post("/voice-script")
-def voice_script(body: LangReq):
+def voice_script(body: LangReq, user: dict = Depends(require_user)):
     row = reference_data.get_latest_row()
     if not row:
         raise HTTPException(status_code=404, detail="no readings")
@@ -20,7 +21,7 @@ def voice_script(body: LangReq):
 
 
 @router.post("/report")
-def report(body: LangReq):
+def report(body: LangReq, user: dict = Depends(require_user)):
     row = reference_data.get_latest_row()
     if not row:
         raise HTTPException(status_code=404, detail="no readings")
@@ -28,7 +29,7 @@ def report(body: LangReq):
 
 
 @router.post("/self-care")
-def self_care(body: LangReq):
+def self_care(body: LangReq, user: dict = Depends(require_user)):
     row = reference_data.get_latest_row()
     if not row:
         raise HTTPException(status_code=404, detail="no readings")
@@ -39,12 +40,12 @@ def self_care(body: LangReq):
 
 
 @router.get("/chat")
-def get_chat():
+def get_chat(user: dict = Depends(require_user)):
     return {"messages": reference_data.get_chat_history(), "context": reference_data.get_context()}
 
 
 @router.post("/chat")
-def send_chat(body: ChatSendReq):
+def send_chat(body: ChatSendReq, user: dict = Depends(require_user)):
     message = body.message.strip()
     if not message:
         raise HTTPException(status_code=400, detail="empty message")
@@ -86,6 +87,6 @@ def send_chat(body: ChatSendReq):
 
 
 @router.delete("/chat")
-def reset_chat():
+def reset_chat(user: dict = Depends(require_user)):
     db.execute("DELETE FROM chat_messages")
     return {"ok": True}
