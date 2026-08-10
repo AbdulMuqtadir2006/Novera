@@ -28,6 +28,11 @@ class ReadingIn(BaseModel):
     temperature: Optional[float] = None
 
 
+# ---- ESP32 sensor node ----
+class DevicePingIn(BaseModel):
+    ssid: str = ""
+
+
 # ---- patient context ----
 class PatientContextIn(BaseModel):
     diagnosis: str = ""

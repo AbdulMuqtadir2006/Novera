@@ -199,7 +199,18 @@ it's a standalone static page).
   WiFi (no laptop/browser in the loop). Currently sends dummy randomized values in the dashboard's
   reference bands — no sensors wired up yet; see that folder's README for how to swap in real
   sensor reads later. Needed zero backend/frontend changes since `/api/readings` already accepts a
-  partial JSON body.
+  partial JSON body. Supports multiple WiFi networks (`WiFiMulti`, e.g. home + phone hotspot — add
+  as many `WIFI_SSID_n`/`WIFI_PASSWORD_n` pairs as needed).
+- **Device status + on-demand sampling** — `backend/app/routers/device.py` + `device_state` table
+  (single row, `db/schema.sql`). The ESP32 heartbeats `POST /api/device/ping` every 3s with its
+  SSID; the Dashboard polls `GET /api/device/status` every 5s to show connected/offline + SSID
+  (`frontend/src/components/dashboard/DeviceStatusBadge.jsx`, `useDeviceStatus` hook) — "online" is
+  inferred purely from how recently a ping landed (15s window), no persistent connection. The
+  Dashboard's **Take New Sample** button (renamed from "Simulate new sample") calls
+  `POST /api/device/request-sample` to set a pending flag, then polls `GET /api/readings/latest`
+  for a newer timestamp (30s timeout, shows `dash.sampleTimeout` on failure) instead of fabricating
+  a value itself. The ESP32 sees the pending flag on its next ping and takes a real reading
+  immediately; `POST /api/readings` clears the flag on insert either way.
 
 ## Constraints and gotchas (hard-won, don't rediscover these)
 

@@ -38,6 +38,9 @@ export const getReadingHistory = (days = 30) => req(`/readings?days=${days}`);
 export const addReading = (values) =>
   req("/readings", { method: "POST", body: JSON.stringify(values || {}) });
 
+export const getDeviceStatus = () => req("/device/status");
+export const requestSample = () => req("/device/request-sample", { method: "POST" });
+
 export const getHealth = () => req("/health");
 
 export const getPatientContext = () => req("/patient-context");

@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import config
 from .core import scoring
-from .routers import appointments, auth, content_agents, health, patient_context, readings, screening, whatsapp
+from .routers import appointments, auth, content_agents, device, health, patient_context, readings, screening, whatsapp
 
 app = FastAPI(title="NOVERA API", version="1.0.0")
 
@@ -36,6 +36,7 @@ def _startup() -> None:
 app.include_router(health.router)
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(readings.router, prefix="/api", tags=["readings"])
+app.include_router(device.router, prefix="/api", tags=["device"])
 app.include_router(patient_context.router, prefix="/api", tags=["patient-context"])
 app.include_router(content_agents.router, prefix="/api", tags=["ai"])
 app.include_router(screening.router, prefix="/api", tags=["screening"])

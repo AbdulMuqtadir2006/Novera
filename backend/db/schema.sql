@@ -91,6 +91,19 @@ INSERT INTO patient_context (id, diagnosis, medications, notes, updated_at)
 VALUES (1, '', '', '', now())
 ON CONFLICT (id) DO NOTHING;
 
+-- Single-row table tracking the ESP32 sensor node's live WiFi status and
+-- whether the dashboard has requested an on-demand sample.
+CREATE TABLE IF NOT EXISTS device_state (
+    id              INTEGER PRIMARY KEY CHECK (id = 1),
+    ssid            TEXT,
+    last_seen       TIMESTAMPTZ,
+    pending_sample  BOOLEAN NOT NULL DEFAULT false
+);
+
+INSERT INTO device_state (id, ssid, last_seen, pending_sample)
+VALUES (1, NULL, NULL, false)
+ON CONFLICT (id) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS chat_messages (
     id          SERIAL PRIMARY KEY,
     role        TEXT NOT NULL,

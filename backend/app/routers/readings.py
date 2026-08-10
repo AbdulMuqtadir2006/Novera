@@ -58,4 +58,7 @@ def add_reading(body: ReadingIn):
         """,
         (datetime.now(timezone.utc), reading["ph"], reading["creatinine"], reading["urea"], reading["temperature"]),
     )
+    # Clears any pending on-demand sample request from the dashboard —
+    # covers both the ESP32's periodic pushes and its request-triggered ones.
+    db.execute("UPDATE device_state SET pending_sample = false WHERE id = 1")
     return reference_data.row_to_reading(row)

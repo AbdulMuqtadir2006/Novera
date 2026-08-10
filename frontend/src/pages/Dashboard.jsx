@@ -6,8 +6,9 @@ import { ReadingCard } from "../components/dashboard/ReadingCard";
 import { TrendChart } from "../components/dashboard/TrendChart";
 import { ScreeningGauge } from "../components/dashboard/ScreeningGauge";
 import { StatusBadge } from "../components/dashboard/StatusBadge";
+import { DeviceStatusBadge } from "../components/dashboard/DeviceStatusBadge";
 import { useLatestReading, useReadingHistory } from "../hooks/useLatestReading";
-import { addReading } from "../lib/api";
+import { getLatestReading, requestSample } from "../lib/api";
 import { AnimatedNumber } from "../components/ui/AnimatedNumber";
 import { staggerContainer } from "../components/ui/Reveal";
 import { useLang } from "../i18n/LanguageContext";
@@ -130,6 +131,7 @@ export default function Dashboard() {
   const [refresh, setRefresh] = useState(0);
   const [days, setDays] = useState(30);
   const [adding, setAdding] = useState(false);
+  const [sampleError, setSampleError] = useState(false);
   const { reading, loading } = useLatestReading(refresh);
   const { history } = useReadingHistory(days === 9999 ? 30 : days, refresh);
 
@@ -144,11 +146,37 @@ export default function Dashboard() {
     return out;
   }, [history, lang]);
 
+  // "Take New Sample" no longer fabricates a value itself — it asks the
+  // ESP32 (via /device/request-sample) to take a real reading, then polls
+  // for a reading newer than the one on screen. The ESP32 checks in every
+  // few seconds (see hardware/esp32_sensor/esp32_sensor.ino), so this
+  // resolves within a couple of ping cycles once it's connected.
+  const POLL_INTERVAL_MS = 1500;
+  const POLL_TIMEOUT_MS = 30000;
+
   const handleAdd = async () => {
     setAdding(true);
+    setSampleError(false);
     try {
-      await addReading();
-      setRefresh((n) => n + 1);
+      const before = reading?.timestamp ?? null;
+      await requestSample();
+
+      const deadline = Date.now() + POLL_TIMEOUT_MS;
+      let landed = false;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        const latest = await getLatestReading().catch(() => null);
+        if (latest && latest.timestamp !== before) {
+          landed = true;
+          break;
+        }
+      }
+
+      if (landed) {
+        setRefresh((n) => n + 1);
+      } else {
+        setSampleError(true);
+      }
     } finally {
       setAdding(false);
     }
@@ -161,10 +189,16 @@ export default function Dashboard() {
           <p className="eyebrow mb-2">{t("dash.eyebrow")}</p>
           <h1 className="font-display text-3xl font-bold text-depth sm:text-4xl">{t("dash.title")}</h1>
         </div>
-        <button type="button" onClick={handleAdd} disabled={adding} className="btn-primary self-start disabled:opacity-60 sm:self-auto">
-          {adding ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
-          {adding ? t("dash.adding") : t("dash.addReading")}
-        </button>
+        <div className="flex flex-col items-start gap-2 sm:items-end">
+          <div className="flex items-center gap-3">
+            <DeviceStatusBadge />
+            <button type="button" onClick={handleAdd} disabled={adding} className="btn-primary self-start disabled:opacity-60 sm:self-auto">
+              {adding ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
+              {adding ? t("dash.adding") : t("dash.addReading")}
+            </button>
+          </div>
+          {sampleError && <p className="text-xs font-medium text-red-500">{t("dash.sampleTimeout")}</p>}
+        </div>
       </header>
 
       {loading || !reading ? (
