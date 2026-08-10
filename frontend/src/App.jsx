@@ -5,6 +5,7 @@ import { Navbar } from "./components/layout/Navbar";
 import { Footer } from "./components/layout/Footer";
 import { ScrollToTop } from "./components/layout/ScrollToTop";
 import { RouteFallback } from "./components/ui/RouteFallback";
+import { RouteErrorBoundary } from "./components/ui/RouteErrorBoundary";
 import { IOSInstallBanner } from "./components/ui/IOSInstallBanner";
 import { RequireAuth } from "./components/auth/RequireAuth";
 
@@ -36,21 +37,26 @@ export default function App() {
       <ScrollToTop />
       {!isAuthPage && <Navbar />}
       <div id="main">
-        <Suspense fallback={<RouteFallback />}>
-          <AnimatePresence mode="wait">
-            <Routes location={location} key={location.pathname}>
-              <Route path="/" element={<Home />} />
-              <Route path="/login" element={<Login />} />
-              <Route path="/signup" element={<Signup />} />
-              <Route path="/dashboard" element={gated(<Dashboard />)} />
-              <Route path="/reports" element={gated(<Reports />)} />
-              <Route path="/voice" element={gated(<Voice />)} />
-              <Route path="/self-care" element={gated(<SelfCare />)} />
-              <Route path="/more" element={gated(<Appointments />)} />
-              <Route path="*" element={<ComingSoon />} />
-            </Routes>
-          </AnimatePresence>
-        </Suspense>
+        {/* Keyed by pathname: if a page crashes, navigating to a different
+            route remounts the boundary fresh instead of staying stuck —
+            Navbar/Footer live outside it so nav is always still clickable. */}
+        <RouteErrorBoundary key={location.pathname}>
+          <Suspense fallback={<RouteFallback />}>
+            <AnimatePresence mode="wait">
+              <Routes location={location} key={location.pathname}>
+                <Route path="/" element={<Home />} />
+                <Route path="/login" element={<Login />} />
+                <Route path="/signup" element={<Signup />} />
+                <Route path="/dashboard" element={gated(<Dashboard />)} />
+                <Route path="/reports" element={gated(<Reports />)} />
+                <Route path="/voice" element={gated(<Voice />)} />
+                <Route path="/self-care" element={gated(<SelfCare />)} />
+                <Route path="/more" element={gated(<Appointments />)} />
+                <Route path="*" element={<ComingSoon />} />
+              </Routes>
+            </AnimatePresence>
+          </Suspense>
+        </RouteErrorBoundary>
       </div>
       {!isAuthPage && <Footer />}
       <IOSInstallBanner />
