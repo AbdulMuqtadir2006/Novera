@@ -237,6 +237,18 @@ it's a standalone static page).
 - Meta WhatsApp only allows free-form replies within 24h of the user's last message.
 - Case confirmation (building the similarity-scoring memory) is CLI-only —
   `backend/scripts/screening_cli.py confirm`, no UI.
+- **Railway's GitHub auto-deploy can silently stop working two independent ways** — found 2026-08-10
+  when pushes stopped deploying with no error surfaced anywhere in git/GitHub: (1) the Railway
+  GitHub App itself had been fully uninstalled from the GitHub account (invisible from Railway's
+  side — its Settings → Source still showed the repo name, just with a red "GitHub Repo not found"
+  underneath; confirm via `github.com/settings/installations` on the GitHub side, not Railway's UI),
+  and (2) independently, the "Auto deploys when pushed to GitHub" toggle on the branch connection
+  (Settings → Source → "Branch connected to production") was switched off. Both had to be fixed —
+  reinstalling the GitHub App alone wasn't enough. If a push doesn't deploy, check both, and don't
+  assume a stuck build means the Nixpacks/Docker build itself is broken. `railway up --detach` from
+  the repo root (not `backend/` — the CLI resolves the configured `/backend` root directory relative
+  to wherever it's invoked, and running it from inside `backend/` fails with "Failed to read app
+  source directory") is the manual-deploy escape hatch while auto-deploy is down.
 
 ## Open / deferred
 
