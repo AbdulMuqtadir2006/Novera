@@ -14,9 +14,12 @@ DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 # ---- OpenRouter (via ChatOpenAI) ----
 # Two models, split by stakes: cheap/high-volume content generation on DeepSeek,
 # the single screening decision call on Claude (accuracy matters more than cost there).
+# DeepSeek default pinned to a dated snapshot (not a "-latest" floating alias)
+# so behavior doesn't shift under us; v3.1 was retired from OpenRouter's
+# catalog, migrated to the v4 Flash generation.
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-OPENROUTER_MODEL_CONTENT = os.getenv("OPENROUTER_MODEL_CONTENT", "deepseek/deepseek-chat-v3.1").strip()
+OPENROUTER_MODEL_CONTENT = os.getenv("OPENROUTER_MODEL_CONTENT", "deepseek/deepseek-v4-flash-0731").strip()
 OPENROUTER_MODEL_SCREENING = os.getenv("OPENROUTER_MODEL_SCREENING", "anthropic/claude-sonnet-5").strip()
 OPENROUTER_TIMEOUT_SECONDS = max(15, int(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "60")))
 AI_ENABLED = bool(OPENROUTER_API_KEY.startswith("sk-or-"))
