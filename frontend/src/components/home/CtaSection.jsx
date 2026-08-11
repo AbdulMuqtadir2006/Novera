@@ -13,15 +13,6 @@ export function CtaSection() {
         aria-hidden="true"
       />
       <div className="container-page relative text-center">
-        {/* Research note — quiet, footer-adjacent */}
-        <Reveal>
-          <p className="mx-auto mb-14 max-w-2xl text-pretty text-sm leading-relaxed text-slate-500">
-            Novera is a research-stage screening platform, built to explore what
-            saliva biomarkers can tell us — not to diagnose, treat, or replace
-            care from a medical professional.
-          </p>
-        </Reveal>
-
         <Reveal delay={0.05}>
           <h2 className="mx-auto max-w-3xl text-balance font-display text-4xl font-extrabold leading-tight text-white sm:text-5xl md:text-6xl">
             {t("cta.title")}

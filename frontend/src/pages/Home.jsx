@@ -4,8 +4,8 @@ import { ExplanationSection } from "../components/home/ExplanationSection";
 import { AgentsSection } from "../components/home/AgentsSection";
 import { AgentFlowSection } from "../components/home/AgentFlowSection";
 import { HealthAreasSection } from "../components/home/HealthAreasSection";
-import { HowItWorksSection } from "../components/home/HowItWorksSection";
 import { CtaSection } from "../components/home/CtaSection";
+import { TrustTransparencySection } from "../components/home/TrustTransparencySection";
 
 export default function Home() {
   return (
@@ -35,8 +35,8 @@ export default function Home() {
           <AgentsSection />
           <AgentFlowSection />
           <HealthAreasSection />
-          <HowItWorksSection />
           <CtaSection />
+          <TrustTransparencySection />
         </div>
       </div>
     </motion.main>

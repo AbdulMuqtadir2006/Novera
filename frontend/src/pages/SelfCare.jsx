@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Send, Loader2, RefreshCw, Stethoscope, UtensilsCrossed } from "lucide-react";
+import { Sparkles, Send, Loader2, RefreshCw, Stethoscope, UtensilsCrossed, Trash2 } from "lucide-react";
 import { PageShell } from "../components/layout/PageShell";
-import { getSelfCare, getChat, sendChat } from "../lib/api";
+import { getSelfCare, getChat, sendChat, resetChat } from "../lib/api";
 import { healthAreaById } from "../data/healthAreas";
 import { statusMeta } from "../lib/format";
 import { useLang } from "../i18n/LanguageContext";
@@ -65,11 +65,31 @@ function Coach({ lang, t, onContextChange }) {
 
   const hasContext = context.diagnosis || context.medications || context.notes;
 
+  const clearChat = async () => {
+    try {
+      await resetChat();
+      setMessages([]);
+    } catch {
+      // Non-critical — leave the transcript as-is if the request fails.
+    }
+  };
+
   return (
     <div className="light-card flex flex-col p-6">
-      <h3 className="flex items-center gap-2 font-display text-lg font-semibold text-depth">
-        <Stethoscope size={18} className="text-signal" /> {t("selfcare.coach")}
-      </h3>
+      <div className="flex items-start justify-between gap-3">
+        <h3 className="flex items-center gap-2 font-display text-lg font-semibold text-depth">
+          <Stethoscope size={18} className="text-signal" /> {t("selfcare.coach")}
+        </h3>
+        {messages.length > 0 && (
+          <button
+            type="button"
+            onClick={clearChat}
+            className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-depth/45 transition hover:text-status-attention"
+          >
+            <Trash2 size={13} /> {t("selfcare.clearChat")}
+          </button>
+        )}
+      </div>
       <p className="mt-1 text-sm text-depth/60">{t("selfcare.coachHint")}</p>
 
       <div ref={scrollRef} className="mt-4 flex max-h-72 min-h-[8rem] flex-col gap-3 overflow-y-auto pe-1">
