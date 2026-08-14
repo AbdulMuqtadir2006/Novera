@@ -1,6 +1,6 @@
 # AI Context — Novera
 
-Last updated: 2026-08-08. Read this first in any new session before touching the code — it captures
+Last updated: 2026-08-14. Read this first in any new session before touching the code — it captures
 what's actually built, deployed, and working right now, plus the non-obvious gotchas that cost real
 debugging time to find.
 
@@ -178,6 +178,26 @@ Published as a Claude Artifact (private by default, share manually if needed) �
 state. Source: `.scratch/get-novera.html` (not committed to git — recreate from scratch if needed,
 it's a standalone static page).
 
+### Autonomous Guidance Agent + live homepage workflow diagram (added 2026-08-14)
+
+The one genuinely agentic capability in the backend (everything else is single-shot "LLM-in-the-loop
+structured decisioning"). `backend/app/core/guidance_agent.py` fires as a background task on every
+`POST /api/readings` (real ESP32 push or manual) and runs a real tool-calling loop — the model itself
+decides which of `run_screening_pipeline` / `generate_report` / `generate_voice_script` /
+`generate_self_care_plan` / `offer_clinic_appointment` / `request_retest` to call, in what order, not
+a hardcoded sequence. Every step broadcasts over a new public WebSocket (`backend/app/ws.py`,
+`/ws/pipeline`) that the homepage's "Live Under the Hood" section (`frontend/src/components/home/
+LiveWorkflow/`, replacing the old 3D `AgentFlow3D`) renders as a live n8n-style node diagram —
+falls back to a looping preview animation when idle/disconnected so it's never a dead visual.
+
+Hard safety constraints (don't relax these without re-reading why): `offer_clinic_appointment` always
+calls `send_offer(..., simulate=True)` hardcoded — the autonomous path can never send a real WhatsApp
+message or book a real appointment, only a human-initiated action elsewhere in the app can.
+`config.AUTO_AGENT_ENABLED` is a kill switch (Railway env var, default true). A 60s in-memory throttle
+prevents overlapping runs. Broadcast payloads carry only step/status/organ-category/coarse-flag/model
+labels — never raw biomarker values, patient identity, or free-text notes (it's a public, unauthenticated
+socket serving the marketing homepage).
+
 ## Key files / architecture
 
 - `backend/app/main.py` — FastAPI entry; routers in `backend/app/routers/`.
@@ -189,9 +209,12 @@ it's a standalone static page).
   screening decision (which releases the case back to `NEW` with no invented result if OpenRouter
   fails, rather than fabricating a fallback answer).
 - `backend/app/core/whatsapp_agent.py` + `appointment_graph.py` — LangGraph state machine for
-  WhatsApp booking; booking itself never touches an LLM (DB-safe, no double-booking). This is the
-  established pattern for any future agentic flow in this repo: deterministic graph, LLM scoped to
-  narrow jobs inside individual nodes, never driving control flow itself.
+  WhatsApp booking; booking itself never touches an LLM (DB-safe, no double-booking). Deterministic
+  graph, LLM scoped to narrow jobs inside individual nodes, never driving control flow itself.
+- `backend/app/core/guidance_agent.py` + `backend/app/ws.py` — the real tool-calling agent (see
+  "Autonomous Guidance Agent" above) — the model itself picks which tools to call, unlike the
+  WhatsApp graph above. This is the reference pattern for any *future* genuinely agentic flow in this
+  repo; the WhatsApp graph remains the reference pattern for deterministic-with-LLM-scoring-nodes flows.
 - `frontend/src/pages/` — one file per route.
 - `frontend/src/hooks/useScrollFrameSequence.js` — GSAP scroll-scrub hero logic (desktop + mobile
   frame sets).
@@ -234,6 +257,15 @@ it's a standalone static page).
 - **Re-running a failed GitHub Actions run reuses the *original* commit**, not the latest push — if
   a workflow fix doesn't seem to take effect, check whether "Re-run failed jobs" was used (wrong)
   vs. triggering a fresh run via `workflow_dispatch` or a new push (right).
+- **The PWA service worker serves stale JS after a deploy, even to a hard-reload** — found 2026-08-14
+  verifying a frontend push live. `vite-plugin-pwa`'s `registerType: "autoUpdate"` does *not* mean a
+  browser tab that already has the app installed/visited picks up new code on its next load — Cloudflare
+  can have the new build live (confirmed by curling the deployed JS chunk directly) while the browser
+  still renders the previous version from the old service worker's cache. Fix: in DevTools console (or
+  via the `javascript_tool`), `(await navigator.serviceWorker.getRegistrations()).forEach(r =>
+  r.unregister())` + `(await caches.keys()).forEach(k => caches.delete(k))`, then reload. Don't waste
+  time re-checking the deploy itself once you've confirmed the server-side asset is already correct —
+  the staleness is client-side.
 - Meta WhatsApp only allows free-form replies within 24h of the user's last message.
 - Case confirmation (building the similarity-scoring memory) is CLI-only —
   `backend/scripts/screening_cli.py confirm`, no UI.
