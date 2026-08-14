@@ -13,9 +13,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from .. import config, db
+from . import reference_data
 
 ORGANS = ("KIDNEY", "STOMACH", "ORAL")
 BIOMARKERS = ("ph", "urea_mg_dl", "creatinine_umol_l", "temperature_c")
+CREATININE_MGDL_TO_UMOLL = 88.42
 
 # Canonical reference ranges — the same values novera.py has always used, and
 # that the migrated N001-N150 confirmed cases were labelled against.
@@ -201,6 +203,39 @@ def add_reading(ph: float, urea_mg_dl: float, creatinine_umol_l: float, temperat
                 (case_id, ph, urea_mg_dl, creatinine_umol_l, temperature_c),
             )
     return case_id
+
+
+def claim_new_case_from_latest_reading() -> dict[str, Any] | None:
+    """Shared by the manual /predict-organ(/stream) endpoints (routers/screening.py)
+    and the autonomous guidance agent (core/guidance_agent.py): turn the dashboard's
+    latest `readings` row into a freshly claimed 'PROCESSING' screening_cases row.
+
+    Returns None (rather than raising) when there's no reading yet, since the two
+    callers want different behavior for that case (HTTP 404 vs. silently skipping
+    an orchestrator run) — the caller decides what "no reading" means for it.
+    """
+    row = reference_data.get_latest_row()
+    if not row:
+        return None
+    reading = reference_data.row_to_reading(row)
+    m = reading["metrics"]
+
+    case_id = add_reading(
+        ph=float(m["ph"]["value"]),
+        urea_mg_dl=float(m["urea"]["value"]),
+        creatinine_umol_l=float(m["creatinine"]["value"]) * CREATININE_MGDL_TO_UMOLL,
+        temperature_c=float(m["temperature"]["value"]),
+    )
+    case_row = db.fetch_one(
+        """
+        SELECT id, case_id, ph, urea_mg_dl, creatinine_umol_l, temperature_c, status
+        FROM screening_cases WHERE case_id = %s
+        """,
+        (case_id,),
+    )
+    claim_reading(case_row["id"])
+    case_row["status"] = "PROCESSING"
+    return case_row
 
 
 def fetch_latest_new_reading() -> dict[str, Any] | None:

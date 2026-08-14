@@ -5,13 +5,13 @@ LangGraph service into one FastAPI app on Postgres.
 """
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
-from . import config
+from . import config, ws
 from .core import scoring
 from .rate_limit import limiter
 from .routers import appointments, auth, content_agents, device, health, patient_context, readings, screening, whatsapp
@@ -50,6 +50,22 @@ app.include_router(content_agents.router, prefix="/api", tags=["ai"])
 app.include_router(screening.router, prefix="/api", tags=["screening"])
 app.include_router(appointments.router, prefix="/api", tags=["appointments"])
 app.include_router(whatsapp.router, tags=["whatsapp"])  # bare /webhook, per req 10
+
+
+@app.websocket("/ws/pipeline")
+async def pipeline_ws(websocket: WebSocket) -> None:
+    """Public, unauthenticated feed for the guidance agent's live pipeline
+    diagram (app/ws.py + core/guidance_agent.py). Client -> server messages
+    aren't part of the contract; we just read and discard them so the
+    connection's read loop can detect disconnects."""
+    await ws.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await ws.disconnect(websocket)
 
 
 if __name__ == "__main__":

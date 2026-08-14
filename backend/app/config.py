@@ -65,5 +65,13 @@ CORS_ORIGINS = [
     if origin.strip()
 ]
 
+# ---- autonomous guidance agent orchestrator ----
+# Kill switch for the tool-calling orchestrator that fires on every
+# POST /api/readings (real ESP32 + simulated readings alike). Default on;
+# set AUTO_AGENT_ENABLED=false to fully disable with zero behavior change
+# to the readings endpoint. Parsed the same simple way AI_ENABLED is derived
+# above — no external bool-parsing helper exists in this codebase yet.
+AUTO_AGENT_ENABLED = os.getenv("AUTO_AGENT_ENABLED", "true").strip().lower() != "false"
+
 # ---- misc ----
 SERVICE_PORT = int(os.getenv("PORT", "8000"))

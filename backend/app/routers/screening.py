@@ -5,39 +5,21 @@ import json
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
-from .. import db
-from ..core import reference_data, scoring, screening_llm
+from ..core import scoring, screening_llm
 from ..deps import require_user
 
 router = APIRouter()
 
-CREATININE_MGDL_TO_UMOLL = 88.42
-
 
 def _claim_new_screening_case():
     """Shared setup for both /predict-organ and /predict-organ/stream: turn the
-    dashboard's latest reading into a claimed 'PROCESSING' screening_cases row."""
-    row = reference_data.get_latest_row()
-    if not row:
+    dashboard's latest reading into a claimed 'PROCESSING' screening_cases row.
+    Thin HTTP wrapper over scoring.claim_new_case_from_latest_reading(), which
+    is also reused (unmodified) by the autonomous guidance agent — see
+    core/guidance_agent.py and core/scoring.py's docstring on that function."""
+    case_row = scoring.claim_new_case_from_latest_reading()
+    if not case_row:
         raise HTTPException(status_code=404, detail="no readings")
-    reading = reference_data.row_to_reading(row)
-    m = reading["metrics"]
-
-    case_id = scoring.add_reading(
-        ph=float(m["ph"]["value"]),
-        urea_mg_dl=float(m["urea"]["value"]),
-        creatinine_umol_l=float(m["creatinine"]["value"]) * CREATININE_MGDL_TO_UMOLL,
-        temperature_c=float(m["temperature"]["value"]),
-    )
-    case_row = db.fetch_one(
-        """
-        SELECT id, case_id, ph, urea_mg_dl, creatinine_umol_l, temperature_c, status
-        FROM screening_cases WHERE case_id = %s
-        """,
-        (case_id,),
-    )
-    scoring.claim_reading(case_row["id"])
-    case_row["status"] = "PROCESSING"
     return case_row
 
 

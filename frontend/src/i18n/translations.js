@@ -213,6 +213,37 @@ export const translations = {
     "auth.working": "Please wait…",
     "auth.required": "This page requires an account.",
     "auth.hello": "Hi",
+
+    "liveWorkflow.node.device": "Sensor Reading",
+    "liveWorkflow.node.validate": "Validate",
+    "liveWorkflow.node.scoreKidney": "Kidney Score",
+    "liveWorkflow.node.scoreStomach": "Stomach Score",
+    "liveWorkflow.node.scoreOral": "Oral Score",
+    "liveWorkflow.node.agent": "Guidance Agent",
+    "liveWorkflow.node.toolReport": "Report",
+    "liveWorkflow.node.toolVoice": "Voice Script",
+    "liveWorkflow.node.toolSelfcare": "Self-Care Plan",
+    "liveWorkflow.node.toolWhatsapp": "Clinic Offer",
+    "liveWorkflow.node.toolRetest": "Request Retest",
+
+    "liveWorkflow.satellite.chatModel": "Chat Model",
+    "liveWorkflow.satellite.chatModelDetail": "Claude Sonnet 5",
+    "liveWorkflow.satellite.memory": "Memory",
+    "liveWorkflow.satellite.memoryDetail": "Confirmed cases + context",
+    "liveWorkflow.satellite.tool": "Tool",
+    "liveWorkflow.satellite.toolDetail": "5 actions available",
+
+    "liveWorkflow.state.idle": "Idle",
+    "liveWorkflow.state.active": "Running",
+    "liveWorkflow.state.success": "Done",
+    "liveWorkflow.state.error": "Error",
+
+    "liveWorkflow.status.live": "Live",
+    "liveWorkflow.status.preview": "Preview",
+
+    "liveWorkflow.srIntro": "Agent pipeline, in order:",
+    "liveWorkflow.srEdges": "Connections:",
+    "liveWorkflow.srToolNote": "The five action nodes after the Guidance Agent only light up when the agent actually chooses to use them on a given run — an unused tool is not an error, it's a decision.",
   },
 
   ar: {
@@ -396,5 +427,36 @@ export const translations = {
     "auth.working": "الرجاء الانتظار…",
     "auth.required": "تتطلب هذه الصفحة حساباً.",
     "auth.hello": "مرحباً",
+
+    "liveWorkflow.node.device": "قراءة المستشعر",
+    "liveWorkflow.node.validate": "التحقق",
+    "liveWorkflow.node.scoreKidney": "تقييم الكلى",
+    "liveWorkflow.node.scoreStomach": "تقييم المعدة",
+    "liveWorkflow.node.scoreOral": "تقييم الفم",
+    "liveWorkflow.node.agent": "وكيل الإرشاد",
+    "liveWorkflow.node.toolReport": "التقرير",
+    "liveWorkflow.node.toolVoice": "النص الصوتي",
+    "liveWorkflow.node.toolSelfcare": "خطة العناية الذاتية",
+    "liveWorkflow.node.toolWhatsapp": "عرض العيادة",
+    "liveWorkflow.node.toolRetest": "طلب إعادة الفحص",
+
+    "liveWorkflow.satellite.chatModel": "نموذج المحادثة",
+    "liveWorkflow.satellite.chatModelDetail": "Claude Sonnet 5",
+    "liveWorkflow.satellite.memory": "الذاكرة",
+    "liveWorkflow.satellite.memoryDetail": "الحالات المؤكدة والسياق",
+    "liveWorkflow.satellite.tool": "الأداة",
+    "liveWorkflow.satellite.toolDetail": "٥ إجراءات متاحة",
+
+    "liveWorkflow.state.idle": "خامل",
+    "liveWorkflow.state.active": "قيد التشغيل",
+    "liveWorkflow.state.success": "تم",
+    "liveWorkflow.state.error": "خطأ",
+
+    "liveWorkflow.status.live": "مباشر",
+    "liveWorkflow.status.preview": "معاينة",
+
+    "liveWorkflow.srIntro": "خط سير الوكلاء، بالترتيب:",
+    "liveWorkflow.srEdges": "الروابط:",
+    "liveWorkflow.srToolNote": "عُقد الإجراءات الخمس بعد وكيل الإرشاد تُضاء فقط عندما يختار الوكيل فعلياً استخدامها في تشغيل معيّن — عدم استخدام أداة ليس خطأً، بل قرار.",
   },
 };

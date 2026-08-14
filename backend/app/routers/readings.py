@@ -3,10 +3,10 @@ from __future__ import annotations
 import random
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
-from .. import db
-from ..core import reference_data
+from .. import config, db
+from ..core import guidance_agent, reference_data
 from ..deps import require_user
 from ..schemas import ReadingIn
 
@@ -41,9 +41,11 @@ def history(days: int = 30, user: dict = Depends(require_user)):
 
 
 @router.post("/readings", status_code=201)
-def add_reading(body: ReadingIn):
+def add_reading(body: ReadingIn, background_tasks: BackgroundTasks):
     """Simulates a fresh sample landing in the DB (optional body values;
-    otherwise generate a plausible reading near the last one)."""
+    otherwise generate a plausible reading near the last one). This is the
+    exact trigger point the real ESP32 hits every 5 minutes (no auth) and
+    that any manual/simulated reading also hits."""
     last = reference_data.get_latest_row()
     reading = {
         "ph": body.ph if body.ph is not None else _jitter(last["ph"] if last else 6.8, 0.6, 2),
@@ -62,4 +64,14 @@ def add_reading(body: ReadingIn):
     # Clears any pending on-demand sample request from the dashboard —
     # covers both the ESP32's periodic pushes and its request-triggered ones.
     db.execute("UPDATE device_state SET pending_sample = false WHERE id = 1")
-    return reference_data.row_to_reading(row)
+    out = reference_data.row_to_reading(row)
+
+    # Fire the autonomous guidance agent as a true background task (runs
+    # after this response is already sent — never slows down the ESP32's
+    # POST). guidance_agent.run() re-checks AUTO_AGENT_ENABLED and the
+    # in-flight/60s throttle itself, so when either gates it off nothing
+    # happens here beyond scheduling a no-op coroutine.
+    if config.AUTO_AGENT_ENABLED:
+        background_tasks.add_task(guidance_agent.run, out)
+
+    return out
