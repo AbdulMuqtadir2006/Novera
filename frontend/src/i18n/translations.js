@@ -241,6 +241,9 @@ export const translations = {
     "liveWorkflow.status.live": "Live",
     "liveWorkflow.status.preview": "Preview",
 
+    "liveWorkflow.ticker.label": "Reasoning stream",
+    "liveWorkflow.ticker.idle": "Awaiting a live signal — showing preview",
+
     "liveWorkflow.srIntro": "Agent pipeline, in order:",
     "liveWorkflow.srEdges": "Connections:",
     "liveWorkflow.srToolNote": "The five action nodes after the Guidance Agent only light up when the agent actually chooses to use them on a given run — an unused tool is not an error, it's a decision.",
@@ -454,6 +457,9 @@ export const translations = {
 
     "liveWorkflow.status.live": "مباشر",
     "liveWorkflow.status.preview": "معاينة",
+
+    "liveWorkflow.ticker.label": "سجل التفكير",
+    "liveWorkflow.ticker.idle": "بانتظار إشارة مباشرة — عرض توضيحي",
 
     "liveWorkflow.srIntro": "خط سير الوكلاء، بالترتيب:",
     "liveWorkflow.srEdges": "الروابط:",

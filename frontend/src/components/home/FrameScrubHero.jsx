@@ -45,7 +45,7 @@ export function FrameScrubHero() {
   const canvasRef = useRef(null);
   const sectionRef = useRef(null);
   const reduced = usePrefersReducedMotion();
-  const { ready, progress, loadProgress } = useScrollFrameSequence(canvasRef, sectionRef, !reduced);
+  const { ready, progress, readyProgress } = useScrollFrameSequence(canvasRef, sectionRef, !reduced);
 
   const stage = Math.min(STAGES.length - 1, Math.floor(progress * STAGES.length));
   const s = STAGES[stage];
@@ -91,11 +91,11 @@ export function FrameScrubHero() {
               <div className="h-[3px] w-52 overflow-hidden rounded-full bg-white/10">
                 <div
                   className="h-full rounded-full bg-signal transition-[width] duration-200 ease-out"
-                  style={{ width: `${Math.round(loadProgress * 100)}%` }}
+                  style={{ width: `${Math.round(readyProgress * 100)}%` }}
                 />
               </div>
               <span className="font-mono text-[11px] uppercase tracking-[0.28em] text-slate-400">
-                Priming sensor · {Math.round(loadProgress * 100)}%
+                Priming sensor · {Math.round(readyProgress * 100)}%
               </span>
             </div>
           </motion.div>

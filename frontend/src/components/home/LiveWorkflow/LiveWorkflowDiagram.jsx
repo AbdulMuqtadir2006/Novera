@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Check, AlertTriangle, Loader2 } from "lucide-react";
 import { useLang } from "../../../i18n/LanguageContext";
@@ -17,6 +17,7 @@ import {
 
 const LIVE_WINDOW_MS = 90_000;
 const DEMO_STEP_MS = 2800;
+const EVENT_LOG_MAX = 5;
 
 // Brand accents standing in for the reference screenshot's literal palette —
 // same idle/running/passed/failed language PipelineVisualizer already uses
@@ -99,8 +100,67 @@ function StatusBadge({ status, reducedMotion }) {
   return <span className="h-1.5 w-1.5 rounded-full bg-white/15" />;
 }
 
+// Guidance Agent is the actual decision-maker in the pipeline (the only node
+// that chooses its own next step), so it gets a distinct "brain" treatment
+// on top of the normal card chrome: a blurred radial aura that intensifies
+// while active and settles once it decides, plus the same expanding-ring
+// pulse AgentsSection/ComingSoon already use elsewhere for "this is alive."
+function AgentCore({ status, color, reducedMotion }) {
+  return (
+    <>
+      <span
+        className={`pointer-events-none absolute -inset-4 rounded-[28px] blur-xl transition-opacity duration-500 ${
+          status === "active" && !reducedMotion ? "animate-pulse" : ""
+        }`}
+        style={{
+          background: `radial-gradient(circle, ${color}55 0%, transparent 72%)`,
+          opacity: status === "idle" ? 0.12 : status === "success" ? 0.35 : 0.65,
+        }}
+        aria-hidden="true"
+      />
+      {status === "active" && !reducedMotion && (
+        <span
+          className="pointer-events-none absolute inset-0 animate-pulse-ring rounded-2xl border-2"
+          style={{ borderColor: color }}
+          aria-hidden="true"
+        />
+      )}
+    </>
+  );
+}
+
 function NodeCard({ node, status, big, reducedMotion, t }) {
   const color = STATUS_COLOR[status];
+  const isAgent = node.id === "agent";
+
+  // Tracks the *transition into* active so a node gets one punchier
+  // "arrival" kick the moment it lights up, then settles into the regular
+  // looping pulse — reads as a tool call actually landing, not just a
+  // decorative loop that was always running.
+  const prevStatusRef = useRef(status);
+  const [justArrived, setJustArrived] = useState(false);
+  useEffect(() => {
+    const wasActive = prevStatusRef.current === "active";
+    prevStatusRef.current = status;
+    if (!wasActive && status === "active" && !reducedMotion) {
+      setJustArrived(true);
+      const timer = setTimeout(() => setJustArrived(false), 560);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [status, reducedMotion]);
+
+  const animate = justArrived
+    ? { scale: [1, 1.2, 0.96, 1.04, 1] }
+    : status === "active" && !reducedMotion
+      ? { scale: [1, 1.03, 1] }
+      : { scale: 1 };
+  const transition = justArrived
+    ? { duration: 0.56, ease: "easeOut" }
+    : status === "active" && !reducedMotion
+      ? { duration: 1.1, repeat: Infinity, ease: "easeInOut" }
+      : { duration: 0.3, ease: "easeOut" };
+
   return (
     <motion.div
       className="absolute flex items-center gap-2.5 rounded-2xl border bg-white/[0.03] px-3 backdrop-blur-sm"
@@ -112,19 +172,12 @@ function NodeCard({ node, status, big, reducedMotion, t }) {
         borderColor: status === "idle" ? "rgba(255,255,255,0.10)" : `${color}66`,
         boxShadow: status === "idle" ? "none" : `0 0 24px -10px ${color}`,
       }}
-      animate={
-        status === "active" && !reducedMotion
-          ? { scale: [1, 1.03, 1] }
-          : { scale: 1 }
-      }
-      transition={
-        status === "active" && !reducedMotion
-          ? { duration: 1.1, repeat: Infinity, ease: "easeInOut" }
-          : { duration: 0.3, ease: "easeOut" }
-      }
+      animate={animate}
+      transition={transition}
       role="status"
       aria-label={`${t(node.labelKey)} — ${t(`liveWorkflow.state.${status}`)}`}
     >
+      {isAgent && <AgentCore status={status} color={color} reducedMotion={reducedMotion} />}
       <NodeIcon node={node} status={status} reducedMotion={reducedMotion} />
       <span className="min-w-0 flex-1">
         <span
@@ -156,24 +209,40 @@ function SatelliteChip({ sat, agent, t }) {
   );
 }
 
+// Active wires leave a short glowing "comet" trail instead of a bare dot —
+// three copies of the same path animation, phase-offset via negative
+// `begin`, shrinking in size/opacity from head to tail.
 function Wire({ edge, status, reducedMotion }) {
   const from = NODE_BY_ID[edge.from];
   const to = NODE_BY_ID[edge.to];
   const { d } = edgeAnchors(from, to);
   const color = STATUS_COLOR[status];
   const pathId = `wire-${edge.id}`;
+  const active = status === "active" && !reducedMotion;
   return (
     <g>
       <path d={d} fill="none" stroke="rgba(255,255,255,0.10)" strokeWidth={1.5} />
       {status !== "idle" && (
         <path id={pathId} d={d} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" opacity={0.85} />
       )}
-      {status === "active" && !reducedMotion && (
-        <circle r={3.5} fill={color}>
-          <animateMotion dur="1.15s" repeatCount="indefinite">
-            <mpath xlinkHref={`#${pathId}`} />
-          </animateMotion>
-        </circle>
+      {active && (
+        <>
+          <circle r={6.5} fill={color} opacity={0.16} filter="url(#wireGlow)">
+            <animateMotion dur="1.15s" begin="-0.18s" repeatCount="indefinite">
+              <mpath xlinkHref={`#${pathId}`} />
+            </animateMotion>
+          </circle>
+          <circle r={4.5} fill={color} opacity={0.4}>
+            <animateMotion dur="1.15s" begin="-0.09s" repeatCount="indefinite">
+              <mpath xlinkHref={`#${pathId}`} />
+            </animateMotion>
+          </circle>
+          <circle r={3.5} fill={color}>
+            <animateMotion dur="1.15s" repeatCount="indefinite">
+              <mpath xlinkHref={`#${pathId}`} />
+            </animateMotion>
+          </circle>
+        </>
       )}
     </g>
   );
@@ -214,6 +283,55 @@ function LiveIndicator({ isLive, t }) {
   );
 }
 
+// Terminal/log-style strip replaying the real event labels as they stream
+// in off the socket (highest-impact "the AI is visibly thinking" cue — real
+// backend text reads as authentic in a way generic animation doesn't). Only
+// ever shows genuine events: it goes quiet rather than fabricate activity
+// when there's no live run to report on.
+function EventTicker({ entries, isLive, reducedMotion, t }) {
+  const hasEntries = isLive && entries.length > 0;
+  return (
+    <div
+      className="relative overflow-hidden rounded-xl border border-white/10 bg-black/30 px-3 py-2"
+      style={{ boxShadow: "inset 0 0 24px -8px rgba(40,207,224,0.25)" }}
+      aria-hidden="true"
+    >
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.05]"
+        style={{
+          backgroundImage:
+            "repeating-linear-gradient(0deg, #fff 0px, #fff 1px, transparent 1px, transparent 3px)",
+        }}
+      />
+      <p className="relative mb-1 font-mono text-[9px] uppercase tracking-[0.2em] text-slate-500">
+        {t("liveWorkflow.ticker.label")}
+      </p>
+      {hasEntries ? (
+        <ul className="relative flex flex-col gap-0.5">
+          {entries.map((entry, i) => {
+            const isLast = i === entries.length - 1;
+            return (
+              <motion.li
+                key={entry.id}
+                initial={reducedMotion ? false : { opacity: 0, x: -6 }}
+                animate={{ opacity: isLast ? 1 : 0.3 + (i / entries.length) * 0.35, x: 0 }}
+                transition={{ duration: 0.35, ease: "easeOut" }}
+                className="truncate font-mono text-[10.5px] leading-snug text-signal/90"
+              >
+                <span className="text-slate-600">{">"}</span> {entry.label}
+              </motion.li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="relative truncate font-mono text-[10.5px] leading-snug text-slate-500">
+          <span className="text-slate-600">{">"}</span> {t("liveWorkflow.ticker.idle")}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function WorkflowLive() {
   const { t } = useLang();
   const reducedMotion = usePrefersReducedMotion();
@@ -247,54 +365,124 @@ function WorkflowLive() {
   const demoStatus = useMemo(() => buildDemoStatus(demoStep), [demoStep]);
   const status = isLive ? nodeStatus : demoStatus;
 
+  // Rolling local history of real event labels for the ticker — the hook
+  // only exposes the single latest label, so we accumulate our own capped
+  // window here, keyed off `lastEventAt` so we never double-log a render
+  // that didn't actually carry a new event. Cleared whenever we drop out of
+  // "live" so a stale run's chatter never lingers into preview mode.
+  const [eventLog, setEventLog] = useState([]);
+  const lastLoggedAtRef = useRef(null);
+  useEffect(() => {
+    if (!isLive) {
+      lastLoggedAtRef.current = null;
+      setEventLog([]);
+      return;
+    }
+    if (!currentLabel || !lastEventAt || lastEventAt === lastLoggedAtRef.current) return;
+    lastLoggedAtRef.current = lastEventAt;
+    setEventLog((prev) => [...prev, { id: `${lastEventAt}`, label: currentLabel }].slice(-EVENT_LOG_MAX));
+  }, [isLive, currentLabel, lastEventAt]);
+
   const agentNode = NODE_BY_ID.agent;
   const caption = isLive
     ? currentLabel
     : t(`liveWorkflow.node.${keyOf(DEMO_SEQUENCE[Math.min(demoStep, DEMO_SEQUENCE.length - 1)])}`);
 
+  // Scale-to-fit: measure the real available width and shrink the fixed
+  // CANVAS_W x CANVAS_H canvas with a CSS transform so it always fits
+  // without ever needing horizontal scroll — recomputed on resize via
+  // ResizeObserver, capped at 1 so it never scales up past its natural size.
+  const measureRef = useRef(null);
+  const [scale, setScale] = useState(1);
+  useLayoutEffect(() => {
+    const el = measureRef.current;
+    if (!el) return undefined;
+
+    const measure = () => {
+      const width = el.clientWidth;
+      if (width > 0) setScale(Math.min(1, width / CANVAS_W));
+    };
+    measure();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <div className="flex h-full w-full flex-col">
+    <div className="flex w-full flex-col pb-4">
       <div className="flex items-center justify-between px-4 pt-3 sm:px-5">
         <LiveIndicator isLive={isLive} t={t} />
         <p className="truncate pl-3 text-right font-mono text-[10px] text-slate-500 sm:text-[11px]">{caption}</p>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-2 py-2 sm:px-4">
-        <div className="relative mx-auto" style={{ width: CANVAS_W, height: CANVAS_H }}>
-          <svg
-            width={CANVAS_W}
-            height={CANVAS_H}
-            viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
-            className="absolute inset-0"
-            aria-hidden="true"
-          >
-            {AGENT_SATELLITES.map((sat) => (
-              <SatelliteWire key={sat.id} sat={sat} agent={agentNode} />
-            ))}
-            {WORKFLOW_EDGES.map((edge) => (
-              <Wire
-                key={edge.id}
-                edge={edge}
-                status={edgeDisplayStatus(status[edge.from] ?? "idle", status[edge.to] ?? "idle")}
-                reducedMotion={reducedMotion}
-              />
-            ))}
-          </svg>
+      <div className="px-4 pt-2.5 sm:px-5">
+        <EventTicker entries={eventLog} isLive={isLive} reducedMotion={reducedMotion} t={t} />
+      </div>
 
-          {WORKFLOW_NODES.map((node) => (
-            <NodeCard
-              key={node.id}
-              node={node}
-              status={status[node.id] ?? "idle"}
-              big={node.id === "agent"}
-              reducedMotion={reducedMotion}
-              t={t}
-            />
-          ))}
+      <div className="overflow-hidden px-2 pt-3 sm:px-4">
+        <div ref={measureRef} className="w-full">
+          <div className="relative mx-auto" style={{ width: CANVAS_W * scale, height: CANVAS_H * scale }}>
+            <div
+              className="absolute left-0 top-0 origin-top-left"
+              style={{ width: CANVAS_W, height: CANVAS_H, transform: `scale(${scale})` }}
+            >
+              {/* Ambient atmosphere — the canvas stays faintly alive even
+                  between discrete events, not just static except mid-transition. */}
+              <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
+                {!reducedMotion && (
+                  <>
+                    <span className="absolute -left-10 top-6 h-56 w-56 animate-drift-a rounded-full bg-signal/[0.05] blur-[80px]" />
+                    <span className="absolute -right-10 bottom-0 h-64 w-64 animate-drift-b rounded-full bg-vital/[0.05] blur-[90px]" />
+                  </>
+                )}
+              </div>
 
-          {AGENT_SATELLITES.map((sat) => (
-            <SatelliteChip key={sat.id} sat={sat} agent={agentNode} t={t} />
-          ))}
+              <svg
+                width={CANVAS_W}
+                height={CANVAS_H}
+                viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
+                className="absolute inset-0"
+                aria-hidden="true"
+              >
+                <defs>
+                  <filter id="wireGlow" x="-200%" y="-200%" width="500%" height="500%">
+                    <feGaussianBlur stdDeviation="2.4" />
+                  </filter>
+                </defs>
+                {AGENT_SATELLITES.map((sat) => (
+                  <SatelliteWire key={sat.id} sat={sat} agent={agentNode} />
+                ))}
+                {WORKFLOW_EDGES.map((edge) => (
+                  <Wire
+                    key={edge.id}
+                    edge={edge}
+                    status={edgeDisplayStatus(status[edge.from] ?? "idle", status[edge.to] ?? "idle")}
+                    reducedMotion={reducedMotion}
+                  />
+                ))}
+              </svg>
+
+              {WORKFLOW_NODES.map((node) => (
+                <NodeCard
+                  key={node.id}
+                  node={node}
+                  status={status[node.id] ?? "idle"}
+                  big={node.id === "agent"}
+                  reducedMotion={reducedMotion}
+                  t={t}
+                />
+              ))}
+
+              {AGENT_SATELLITES.map((sat) => (
+                <SatelliteChip key={sat.id} sat={sat} agent={agentNode} t={t} />
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -334,8 +522,12 @@ export function LiveWorkflowDiagram() {
   }, []);
 
   return (
-    <div ref={containerRef} className="h-full w-full">
-      {hasLoaded ? <WorkflowLive /> : <div className="h-full w-full" aria-hidden="true" />}
+    <div ref={containerRef} className="w-full">
+      {hasLoaded ? (
+        <WorkflowLive />
+      ) : (
+        <div className="h-[320px] w-full sm:h-[420px]" aria-hidden="true" />
+      )}
     </div>
   );
 }

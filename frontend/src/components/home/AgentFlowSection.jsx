@@ -20,7 +20,7 @@ export function AgentFlowSection() {
       title="Watch the pipeline think, in real time."
       intro="Every reading runs through a real backend pipeline — capture, validation, three parallel organ-health scores — into the Guidance Agent, which decides for itself which of five actions to take. Nothing here is scripted: this is that pipeline's actual event stream, rendered live."
     >
-      <div className="glass-card relative h-[600px] overflow-hidden sm:h-[640px]">
+      <div className="glass-card relative overflow-hidden">
         <div
           className="pointer-events-none absolute inset-0 grid-lines opacity-30"
           aria-hidden="true"

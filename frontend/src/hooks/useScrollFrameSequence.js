@@ -17,6 +17,19 @@ function normalizeScrollOnce() {
 
 const TOTAL_FRAMES = 240;
 
+// Tier-1 (priority) loading: every 8th frame gives full-range scroll
+// coverage at coarse granularity almost immediately, instead of finishing
+// the first N frames while the rest of the range stays blank. 240 is added
+// explicitly since the frame 240 is what the reduced-motion path holds on.
+const PRIORITY_STRIDE = 8;
+// Safety net so a couple of slow/failed tier-1 requests can't block the
+// hero forever — same "don't stall on one bad frame" philosophy as the
+// per-image onerror handler below.
+const PRIORITY_TIMEOUT_MS = 4500;
+// Tier-2 (background) loading: fill in the remaining frames behind a small
+// concurrency cap rather than firing ~210 more requests simultaneously.
+const BACKGROUND_CONCURRENCY = 6;
+
 function isSmallScreen() {
   return typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
 }
@@ -36,6 +49,14 @@ function buildFrameList() {
   return list;
 }
 
+// Coarse, full-range subset loaded first and gates `ready`.
+function buildPriorityFrameNums() {
+  const list = [];
+  for (let n = 1; n <= TOTAL_FRAMES; n += PRIORITY_STRIDE) list.push(n);
+  if (list[list.length - 1] !== TOTAL_FRAMES) list.push(TOTAL_FRAMES);
+  return list;
+}
+
 /**
  * Pins the hero section and scrubs a <canvas> through the frame sequence as the
  * user scrolls. Returns preload + progress state so the caption layer can
@@ -48,35 +69,91 @@ export function useScrollFrameSequence(canvasRef, sectionRef, enabled = true) {
   const imagesRef = useRef([]);
   const frameNumsRef = useRef([]);
   const [ready, setReady] = useState(false);
-  const [loadProgress, setLoadProgress] = useState(0); // 0..1 preload
+  const [loadProgress, setLoadProgress] = useState(0); // 0..1 overall preload (tier 1 + tier 2)
+  const [readyProgress, setReadyProgress] = useState(0); // 0..1 progress toward `ready` (tier 1 only)
   const [progress, setProgress] = useState(0); // 0..1 scroll position
 
-  // Preload frames.
+  // Preload frames: tier 1 (priority) blocks readiness, tier 2 (background,
+  // concurrency-limited) fills in the rest afterward. `draw()`/`drawCover()`
+  // already no-op on a not-yet-loaded frame and leave the previous frame on
+  // screen, so tier 2 needs no explicit "swap in" step — an `img.complete`
+  // check next time that index is drawn picks it up automatically.
   useEffect(() => {
     const mobile = isSmallScreen();
     const frameNums = buildFrameList();
     frameNumsRef.current = frameNums;
     const count = frameNums.length;
-    let loaded = 0;
-    let cancelled = false;
+    const priorityNums = new Set(buildPriorityFrameNums());
+    const priorityCount = priorityNums.size;
 
-    imagesRef.current = frameNums.map((n) => {
+    let loaded = 0;
+    let priorityLoaded = 0;
+    let cancelled = false;
+    let readyFired = false;
+
+    const fireReady = () => {
+      if (readyFired) return;
+      readyFired = true;
+      clearTimeout(timeoutId);
+      setReady(true);
+    };
+
+    const timeoutId = setTimeout(fireReady, PRIORITY_TIMEOUT_MS);
+
+    const images = frameNums.map(() => {
       const img = new Image();
       img.decoding = "async";
-      img.src = getFramePath(n, mobile);
+      return img;
+    });
+    imagesRef.current = images;
+
+    let inFlight = 0;
+    const backgroundIndexes = [];
+
+    const loadFrame = (index, isPriority) => {
+      const img = images[index];
       const done = () => {
         if (cancelled) return;
         loaded += 1;
         setLoadProgress(loaded / count);
-        if (loaded === count) setReady(true);
+        if (isPriority) {
+          priorityLoaded += 1;
+          // Progress toward readiness, not overall load — this is the only
+          // phase the preload UI is on screen for, so it should read 0→100%
+          // rather than stall around ~13% (tier 1's share of all 240).
+          setReadyProgress(priorityLoaded / priorityCount);
+          if (priorityLoaded === priorityCount) fireReady();
+        } else {
+          inFlight -= 1;
+          pumpBackground();
+        }
       };
       img.onload = done;
-      img.onerror = done; // don't stall the whole hero on one bad frame
-      return img;
+      img.onerror = done; // don't stall on one bad frame
+      img.src = getFramePath(frameNums[index], mobile);
+    };
+
+    function pumpBackground() {
+      if (cancelled) return;
+      while (nextBackground < backgroundIndexes.length && inFlight < BACKGROUND_CONCURRENCY) {
+        inFlight += 1;
+        loadFrame(backgroundIndexes[nextBackground++], false);
+      }
+    }
+    let nextBackground = 0;
+
+    frameNums.forEach((n, index) => {
+      if (priorityNums.has(n)) {
+        loadFrame(index, true);
+      } else {
+        backgroundIndexes.push(index);
+      }
     });
+    pumpBackground();
 
     return () => {
       cancelled = true;
+      clearTimeout(timeoutId);
     };
   }, []);
 
@@ -149,11 +226,26 @@ export function useScrollFrameSequence(canvasRef, sectionRef, enabled = true) {
     resize();
     window.addEventListener("resize", resize);
 
-    // Reduced motion / disabled: hold on the final assembled frame.
+    // Reduced motion / disabled: hold on the final assembled frame. Frame
+    // TOTAL_FRAMES is in tier 1, so it's normally already loaded by the time
+    // `ready` flips — but the priority-timeout safety net can in principle
+    // fire `ready` before it lands, so fall back to waiting on that one
+    // image specifically rather than risk drawing nothing.
     if (!enabled) {
-      draw(lastIndex);
-      setProgress(1);
-      return () => window.removeEventListener("resize", resize);
+      const lastImg = imgs[lastIndex];
+      const showLastFrame = () => {
+        draw(lastIndex);
+        setProgress(1);
+      };
+      if (lastImg.complete && lastImg.naturalWidth) {
+        showLastFrame();
+      } else {
+        lastImg.addEventListener("load", showLastFrame, { once: true });
+      }
+      return () => {
+        lastImg.removeEventListener("load", showLastFrame);
+        window.removeEventListener("resize", resize);
+      };
     }
 
     let rafId = 0;
@@ -185,5 +277,5 @@ export function useScrollFrameSequence(canvasRef, sectionRef, enabled = true) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, enabled]);
 
-  return { ready, progress, loadProgress };
+  return { ready, progress, loadProgress, readyProgress };
 }

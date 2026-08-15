@@ -6,9 +6,12 @@
 //
 // Layout is a fixed pixel canvas (n8n-style: left-to-right flow, nodes as
 // cards, curved wires) rather than percentage-based, so wires and node
-// anchors line up exactly regardless of viewport — the canvas scrolls
-// horizontally on narrow screens instead of shrinking illegibly (same
-// pattern as PipelineVisualizer's overflow-x-auto track).
+// anchors line up exactly regardless of viewport — LiveWorkflowDiagram.jsx
+// measures the real container width and applies a CSS `scale()` transform
+// to this canvas instead of letting it overflow/scroll. Column gaps below
+// are intentionally tight (only as wide as each pair of node half-widths
+// needs, plus a small margin) — every px trimmed from CANVAS_W raises the
+// effective scale (and therefore legibility) at every viewport width.
 import {
   Wifi,
   ShieldCheck,
@@ -26,7 +29,7 @@ import {
   Wrench,
 } from "lucide-react";
 
-export const CANVAS_W = 1200;
+export const CANVAS_W = 1000;
 export const CANVAS_H = 520;
 
 // x/y = card center. Widths are sized generously against the actual longest
@@ -40,20 +43,20 @@ export const CANVAS_H = 520;
 // baseline accent — independent of live run status, which is layered on top
 // (see STATUS_STYLE in LiveWorkflowDiagram.jsx).
 export const WORKFLOW_NODES = [
-  { id: "device", labelKey: "liveWorkflow.node.device", icon: Wifi, x: 80, y: 260, w: 150, h: 64, group: "signal" },
-  { id: "validate", labelKey: "liveWorkflow.node.validate", icon: ShieldCheck, x: 275, y: 260, w: 140, h: 64, group: "signal" },
+  { id: "device", labelKey: "liveWorkflow.node.device", icon: Wifi, x: 85, y: 260, w: 150, h: 64, group: "signal" },
+  { id: "validate", labelKey: "liveWorkflow.node.validate", icon: ShieldCheck, x: 260, y: 260, w: 140, h: 64, group: "signal" },
 
-  { id: "score_kidney", labelKey: "liveWorkflow.node.scoreKidney", icon: Droplet, x: 495, y: 85, w: 164, h: 60, group: "iris" },
-  { id: "score_stomach", labelKey: "liveWorkflow.node.scoreStomach", icon: Utensils, x: 495, y: 260, w: 164, h: 60, group: "iris" },
-  { id: "score_oral", labelKey: "liveWorkflow.node.scoreOral", icon: Smile, x: 495, y: 435, w: 164, h: 60, group: "iris" },
+  { id: "score_kidney", labelKey: "liveWorkflow.node.scoreKidney", icon: Droplet, x: 440, y: 85, w: 164, h: 60, group: "iris" },
+  { id: "score_stomach", labelKey: "liveWorkflow.node.scoreStomach", icon: Utensils, x: 440, y: 260, w: 164, h: 60, group: "iris" },
+  { id: "score_oral", labelKey: "liveWorkflow.node.scoreOral", icon: Smile, x: 440, y: 435, w: 164, h: 60, group: "iris" },
 
-  { id: "agent", labelKey: "liveWorkflow.node.agent", icon: Bot, x: 755, y: 260, w: 210, h: 108, group: "vital" },
+  { id: "agent", labelKey: "liveWorkflow.node.agent", icon: Bot, x: 660, y: 260, w: 210, h: 108, group: "vital" },
 
-  { id: "tool_report", labelKey: "liveWorkflow.node.toolReport", icon: FileText, x: 1080, y: 45, w: 172, h: 58, group: "amber" },
-  { id: "tool_voice", labelKey: "liveWorkflow.node.toolVoice", icon: Mic, x: 1080, y: 152, w: 172, h: 58, group: "amber" },
-  { id: "tool_selfcare", labelKey: "liveWorkflow.node.toolSelfcare", icon: HeartPulse, x: 1080, y: 260, w: 172, h: 58, group: "amber" },
-  { id: "tool_whatsapp", labelKey: "liveWorkflow.node.toolWhatsapp", icon: MessageCircle, x: 1080, y: 368, w: 172, h: 58, group: "amber" },
-  { id: "tool_retest", labelKey: "liveWorkflow.node.toolRetest", icon: RotateCcw, x: 1080, y: 475, w: 172, h: 58, group: "amber" },
+  { id: "tool_report", labelKey: "liveWorkflow.node.toolReport", icon: FileText, x: 885, y: 45, w: 172, h: 58, group: "amber" },
+  { id: "tool_voice", labelKey: "liveWorkflow.node.toolVoice", icon: Mic, x: 885, y: 152, w: 172, h: 58, group: "amber" },
+  { id: "tool_selfcare", labelKey: "liveWorkflow.node.toolSelfcare", icon: HeartPulse, x: 885, y: 260, w: 172, h: 58, group: "amber" },
+  { id: "tool_whatsapp", labelKey: "liveWorkflow.node.toolWhatsapp", icon: MessageCircle, x: 885, y: 368, w: 172, h: 58, group: "amber" },
+  { id: "tool_retest", labelKey: "liveWorkflow.node.toolRetest", icon: RotateCcw, x: 885, y: 475, w: 172, h: 58, group: "amber" },
 ];
 
 export const NODE_BY_ID = Object.fromEntries(WORKFLOW_NODES.map((n) => [n.id, n]));
