@@ -74,3 +74,23 @@ def confirmation_message(booking: dict[str, Any]) -> str:
         f"☎ {loc['phone']}\n\n"
         "Please arrive 10 minutes early. Reply RESCHEDULE if the time doesn't work."
     )
+
+
+def cancellation_message(booking: dict[str, Any]) -> str:
+    loc = booking["location"]
+    return (
+        f"❌ Your appointment at {loc['name']}, {loc['branch']} on {booking['when_human']} "
+        "has been cancelled.\n\nMessage me any time and I'll book a new one."
+    )
+
+
+def reschedule_message(old_booking: dict[str, Any], new_booking: dict[str, Any]) -> str:
+    loc = new_booking["location"]
+    return (
+        f"✅ Your appointment has been moved from {old_booking['when_human']} to "
+        f"{new_booking['when_human']} at {loc['name']}, {loc['branch']}.\n\n"
+        f"📍 {loc['address']}\n"
+        f"🗺 {loc['maps_url']}\n"
+        f"☎ {loc['phone']}\n\n"
+        "Please arrive 10 minutes early. Message me again if you need to change it further."
+    )

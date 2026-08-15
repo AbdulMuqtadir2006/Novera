@@ -45,6 +45,13 @@ class LangReq(BaseModel):
     lang: Lang = "en"
 
 
+class SelfCareReq(BaseModel):
+    lang: Lang = "en"
+    # False (default): return the persisted plan if one exists — no LLM call.
+    # True: always regenerate from scratch (and re-persist the result).
+    force: bool = False
+
+
 class ChatSendReq(BaseModel):
     message: str
     lang: Lang = "en"

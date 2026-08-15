@@ -40,7 +40,12 @@ def find_and_book_slot(
     channel: str = "whatsapp",
 ) -> dict[str, Any]:
     """Find the next free 30-minute slot (Asia/Muscat, now+30min, clinic hours
-    respected) and book it. Retries forward through the slot grid on conflict."""
+    respected) and book it. Retries forward through the slot grid on conflict.
+
+    The arbiter for ON CONFLICT is the partial unique index on (slot_start)
+    WHERE status = 'confirmed' (see db/schema.sql) — new rows always insert as
+    'confirmed' (the column default), so this only conflicts with another
+    still-confirmed booking of the same slot, never a cancelled one."""
     slot, reason = clinic.first_candidate_slot()
 
     for _ in range(MAX_SLOT_ATTEMPTS):
@@ -48,7 +53,7 @@ def find_and_book_slot(
             """
             INSERT INTO appointments (user_id, phone, slot_start, reason, clinic, branch, channel)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (slot_start) DO NOTHING
+            ON CONFLICT (slot_start) WHERE status = 'confirmed' DO NOTHING
             RETURNING id, slot_start, reason, clinic, branch, channel, booked_at
             """,
             (user_id, phone, slot, reason, config.CLINIC_NAME, config.CLINIC_BRANCH, channel),
@@ -61,11 +66,41 @@ def find_and_book_slot(
     raise RuntimeError("No available appointment slot found within the search window.")
 
 
+def cancel_booking(appointment_id: int) -> bool:
+    """Marks a confirmed booking cancelled (never deletes the row — full audit
+    trail preserved). Returns whether a row was actually updated, so callers
+    can tell "cancelled now" from "already cancelled / doesn't exist"."""
+    row = db.fetch_one(
+        """
+        UPDATE appointments SET status = 'cancelled'
+        WHERE id = %s AND status = 'confirmed'
+        RETURNING id
+        """,
+        (appointment_id,),
+    )
+    return row is not None
+
+
+def reschedule_booking(
+    appointment_id: int,
+    phone: Optional[str] = None,
+    user_id: Optional[int] = None,
+    channel: str = "whatsapp",
+) -> dict[str, Any]:
+    """Cancels the old booking and books the next available slot as a new row.
+    Deliberately simple (two operations, not one atomic transaction) — booking
+    the fresh slot is already itself race-safe via the partial unique index +
+    ON CONFLICT retry loop in find_and_book_slot."""
+    cancel_booking(appointment_id)
+    return find_and_book_slot(user_id=user_id, phone=phone, channel=channel)
+
+
 def list_bookings(limit: int = 50) -> list[dict[str, Any]]:
     rows = db.fetch_all(
         """
         SELECT id, slot_start, reason, clinic, branch, channel, booked_at
         FROM appointments
+        WHERE status = 'confirmed'
         ORDER BY slot_start DESC
         LIMIT %s
         """,
@@ -79,7 +114,7 @@ def list_upcoming_for_user(user_id: int, limit: int = 5) -> list[dict[str, Any]]
         """
         SELECT id, slot_start, reason, clinic, branch, channel, booked_at
         FROM appointments
-        WHERE user_id = %s AND slot_start >= now()
+        WHERE user_id = %s AND status = 'confirmed' AND slot_start >= now()
         ORDER BY slot_start ASC
         LIMIT %s
         """,
@@ -93,10 +128,16 @@ def list_upcoming_for_phone(phone: str, limit: int = 5) -> list[dict[str, Any]]:
         """
         SELECT id, slot_start, reason, clinic, branch, channel, booked_at
         FROM appointments
-        WHERE phone = %s AND slot_start >= now()
+        WHERE phone = %s AND status = 'confirmed' AND slot_start >= now()
         ORDER BY slot_start ASC
         LIMIT %s
         """,
         (phone, limit),
     )
     return [_row_to_booking(row) for row in rows]
+
+
+def find_upcoming_booking_for_phone(phone: str) -> Optional[dict[str, Any]]:
+    """The single next confirmed upcoming booking for a phone number, or None."""
+    rows = list_upcoming_for_phone(phone, limit=1)
+    return rows[0] if rows else None

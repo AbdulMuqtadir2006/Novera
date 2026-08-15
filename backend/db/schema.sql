@@ -104,6 +104,19 @@ INSERT INTO device_state (id, ssid, last_seen, pending_sample)
 VALUES (1, NULL, NULL, false)
 ON CONFLICT (id) DO NOTHING;
 
+-- Persisted diet/self-care plan (single row) — regenerating from scratch and
+-- "show me what I already have" are now different operations (see
+-- routers/content_agents.py's `force` flag). NULL until generated once.
+CREATE TABLE IF NOT EXISTS self_care_plan (
+    id           INTEGER PRIMARY KEY CHECK (id = 1),
+    plan_json    JSONB,
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+INSERT INTO self_care_plan (id, plan_json, updated_at)
+VALUES (1, NULL, now())
+ON CONFLICT (id) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS chat_messages (
     id          SERIAL PRIMARY KEY,
     role        TEXT NOT NULL,
@@ -160,7 +173,10 @@ CREATE TABLE IF NOT EXISTS appointments (
     branch       TEXT NOT NULL,
     channel      TEXT NOT NULL DEFAULT 'whatsapp',
     booked_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    -- One doctor / one slot at a time: this is what makes double-booking impossible.
+    -- One doctor / one slot at a time among CONFIRMED bookings: see the partial
+    -- unique index below, which replaced a plain table-wide UNIQUE(slot_start)
+    -- so a cancelled slot can be rebooked while the cancelled row is kept for
+    -- history (never delete a booking row).
     UNIQUE (slot_start)
 );
 
@@ -169,3 +185,31 @@ CREATE INDEX IF NOT EXISTS idx_appointments_slot_start
 
 CREATE INDEX IF NOT EXISTS idx_appointments_user_id
     ON appointments (user_id, slot_start DESC);
+
+-- Cancel/reschedule support (added 2026-08-14) — a cancelled appointment is
+-- never deleted (full audit trail, same ethos as decision_audit elsewhere),
+-- just marked cancelled so its slot frees up again. Nullable-free ADD COLUMN
+-- with a default keeps this idempotent and safe against existing rows, same
+-- pattern as the sessions.expires_at migration above.
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'confirmed';
+
+-- Postgres has no "ADD CONSTRAINT IF NOT EXISTS" — guard via pg_constraint so
+-- this stays safe to run repeatedly, like every other statement in this file.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'appointments_status_check'
+    ) THEN
+        ALTER TABLE appointments
+            ADD CONSTRAINT appointments_status_check CHECK (status IN ('confirmed', 'cancelled'));
+    END IF;
+END $$;
+
+-- Replace the table-wide UNIQUE(slot_start) above (Postgres auto-named it
+-- appointments_slot_start_key, since it was declared as a table-level
+-- UNIQUE(slot_start) constraint, not an inline column constraint) with a
+-- partial unique index scoped to confirmed rows only, so a cancelled slot
+-- becomes bookable again while the cancelled row itself is preserved.
+ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_slot_start_key;
+CREATE UNIQUE INDEX IF NOT EXISTS appointments_slot_start_confirmed_uidx
+    ON appointments (slot_start) WHERE status = 'confirmed';

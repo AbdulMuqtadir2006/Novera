@@ -198,6 +198,27 @@ prevents overlapping runs. Broadcast payloads carry only step/status/organ-categ
 labels — never raw biomarker values, patient identity, or free-text notes (it's a public, unauthenticated
 socket serving the marketing homepage).
 
+### WhatsApp agent converted to real tool-calling (added 2026-08-14)
+
+`backend/app/core/whatsapp_agent.py` — the real, live, HMAC-verified Meta webhook's brain
+(`backend/app/routers/whatsapp.py`'s `POST /webhook`, still untouched) — used to run one
+classification call into 5 fixed intent buckets (confirm/decline/reschedule/question/unknown) with
+Python branching per bucket. It's now a genuine tool-calling agent, same `bind_tools` loop shape as
+`guidance_agent.py` (see below), just synchronous since its caller doesn't await it. Tools:
+`get_patient_facts`, `check_slot_availability` (read-only), `book_appointment`, `cancel_appointment`,
+`reschedule_appointment`. This did **not** add any new real-world side effect beyond what the handler
+already did — replying to the person who just texted, booking/cancelling/rescheduling *their own*
+appointment — it only changed how the decision to do so gets made.
+
+Cancel/reschedule are genuinely new capabilities, which needed a schema change: `appointments` gained
+a `status` column (`'confirmed'` / `'cancelled'`, never deleted — full audit trail, same ethos as
+`decision_audit`), and the old table-wide `UNIQUE(slot_start)` became a partial unique index
+(`appointments_slot_start_confirmed_uidx ... WHERE status = 'confirmed'`) so a cancelled slot frees up
+for rebooking while the cancelled row stays for history. `booking.find_and_book_slot`'s `ON CONFLICT`
+target had to be updated to `ON CONFLICT (slot_start) WHERE status = 'confirmed'` to match the new
+partial index as its arbiter. `list_bookings`/`list_upcoming_for_*` now filter to `status = 'confirmed'`
+so cancelled rows don't resurface in the Appointments page or the agent's own fact-gathering.
+
 ## Key files / architecture
 
 - `backend/app/main.py` — FastAPI entry; routers in `backend/app/routers/`.
@@ -208,13 +229,22 @@ socket serving the marketing homepage).
 - `backend/app/core/fallbacks.py` — deterministic bilingual fallback for every AI call except the
   screening decision (which releases the case back to `NEW` with no invented result if OpenRouter
   fails, rather than fabricating a fallback answer).
-- `backend/app/core/whatsapp_agent.py` + `appointment_graph.py` — LangGraph state machine for
-  WhatsApp booking; booking itself never touches an LLM (DB-safe, no double-booking). Deterministic
-  graph, LLM scoped to narrow jobs inside individual nodes, never driving control flow itself.
-- `backend/app/core/guidance_agent.py` + `backend/app/ws.py` — the real tool-calling agent (see
-  "Autonomous Guidance Agent" above) — the model itself picks which tools to call, unlike the
-  WhatsApp graph above. This is the reference pattern for any *future* genuinely agentic flow in this
-  repo; the WhatsApp graph remains the reference pattern for deterministic-with-LLM-scoring-nodes flows.
+- `backend/app/core/whatsapp_agent.py` (converted 2026-08-14) — the real Meta webhook's brain, now a
+  genuine tool-calling agent (`ChatOpenAI(...).bind_tools([...])`, same manual invoke -> tool_calls ->
+  ToolMessage -> invoke loop shape as `guidance_agent.py`, just synchronous). The model itself decides
+  which of `get_patient_facts` / `check_slot_availability` / `book_appointment` / `cancel_appointment`
+  / `reschedule_appointment` to call and in what order — no more fixed 5-bucket intent classification.
+  Every write tool still goes through `core/booking.py` (Postgres, no LLM in the write path itself,
+  can't be double-booked — the partial unique index on `appointments(slot_start) WHERE status =
+  'confirmed'` is what makes a cancelled slot reusable while keeping the cancelled row for history).
+  `MAX_ITERATIONS = 5`; any failure (AI disabled, an exception mid-loop, hitting the cap with no final
+  text) degrades to a deterministic fact-grounded fallback, never leaves an inbound message unanswered.
+- `backend/app/core/appointment_graph.py` — **unrelated, separate, deliberately untouched**: the
+  simple LangGraph intent-classify-then-book simulator behind `POST /api/appointment/reply`, used only
+  by the Appointments page's manual reply box in the dashboard. Not the real WhatsApp webhook path.
+- `backend/app/core/guidance_agent.py` + `backend/app/ws.py` — the other real tool-calling agent (see
+  "Autonomous Guidance Agent" above) — fires on every reading instead of every inbound WhatsApp
+  message, but same bind_tools loop pattern that `whatsapp_agent.py` now also follows.
 - `frontend/src/pages/` — one file per route.
 - `frontend/src/hooks/useScrollFrameSequence.js` — GSAP scroll-scrub hero logic (desktop + mobile
   frame sets).

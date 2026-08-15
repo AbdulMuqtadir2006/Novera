@@ -51,8 +51,11 @@ export const getVoiceScript = (lang) =>
   req("/voice-script", { method: "POST", body: JSON.stringify({ lang }) });
 export const getReport = (lang) =>
   req("/report", { method: "POST", body: JSON.stringify({ lang }) });
-export const getSelfCare = (lang) =>
-  req("/self-care", { method: "POST", body: JSON.stringify({ lang }) });
+// `force: false` (default) returns the persisted plan instantly if one
+// exists — no LLM call. `force: true` always regenerates from scratch
+// (used by the "Regenerate" button).
+export const getSelfCare = (lang, { force = false } = {}) =>
+  req("/self-care", { method: "POST", body: JSON.stringify({ lang, force }) });
 
 export const getChat = () => req("/chat");
 export const sendChat = (message, lang) =>

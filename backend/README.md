@@ -17,8 +17,11 @@ FastAPI (Railway)                          Postgres (Railway)
    ├── screening pipeline: reference-range score + similarity score
    │     (SQL-limited confirmed_cases) + exactly one OpenRouter call ──► screening_cases, confirmed_cases, decision_audit
    └── WhatsApp: GET/POST /webhook ───────► appointments
-         ├── booking → core/booking.py (Postgres, double-booking safe, no LLM)
-         └── Q&A → facts from Postgres, phrased by one OpenRouter call
+         └── core/whatsapp_agent.py: real tool-calling agent (bind_tools loop,
+             same shape as core/guidance_agent.py) — model decides which of
+             {get facts, check availability, book/cancel/reschedule} to call;
+             all appointment writes still go through core/booking.py
+             (Postgres, double-booking safe, no LLM in the write path itself)
 ```
 
 Every AI call has a deterministic bilingual fallback (`core/fallbacks.py`) — the app stays
@@ -90,11 +93,13 @@ in the Cloudflare Pages project's environment variables, and point `www.echo-nov
    Railway service's env vars.
 3. In **WhatsApp → Configuration → Webhook**: Callback URL `https://api.echo-nova.online/webhook`,
    Verify token = your `META_VERIFY_TOKEN`. Click *Verify and Save*, then subscribe to `messages`.
-4. Inbound messages are routed by `core/whatsapp_agent.py`: booking always goes through
-   `core/booking.py` (Postgres, can't double-book, can't have an invented time — req 13); questions
-   about a patient's report/biomarkers/doctor notes/appointments are answered only from that
-   patient's real data in Postgres (matched by their registered phone number), phrased by one
-   OpenRouter call constrained to those facts (req 12).
+4. Inbound messages are handled by `core/whatsapp_agent.py`'s tool-calling agent — the model
+   decides which tools to call (`get_patient_facts`, `check_slot_availability`,
+   `book_appointment`, `cancel_appointment`, `reschedule_appointment`) and in what order, but
+   every booking/cancel/reschedule write always goes through `core/booking.py` (Postgres, can't
+   double-book, can't have an invented time — req 13), and questions about a patient's
+   report/biomarkers/doctor notes/appointments are answered only from that patient's real data in
+   Postgres (matched by their registered phone number, req 12) — never invented.
 
 > Meta only allows free-form text within **24h** of the user's last message. Business-initiated
 > messages outside that window require an approved template.

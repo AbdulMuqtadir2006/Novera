@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from .. import db
 from ..core import content_llm, reference_data
 from ..deps import require_user
-from ..schemas import ChatSendReq, LangReq
+from ..schemas import ChatSendReq, LangReq, SelfCareReq
 
 router = APIRouter()
 
@@ -29,7 +29,12 @@ def report(body: LangReq, user: dict = Depends(require_user)):
 
 
 @router.post("/self-care")
-def self_care(body: LangReq, user: dict = Depends(require_user)):
+def self_care(body: SelfCareReq, user: dict = Depends(require_user)):
+    if not body.force:
+        existing = reference_data.get_self_care_plan()
+        if existing:
+            return existing
+
     row = reference_data.get_latest_row()
     if not row:
         raise HTTPException(status_code=404, detail="no readings")
@@ -61,6 +66,10 @@ def send_chat(body: ChatSendReq, user: dict = Depends(require_user)):
     ctx = reference_data.get_context()
     history = reference_data.get_chat_history()
 
+    # content_llm.chat_agent is now a real tool-calling agent: any patient-context
+    # or diet-plan edits it decides to make are persisted by its own tools as
+    # they happen, not applied here from a returned blob — this endpoint just
+    # records the transcript and reports back what changed.
     out = content_llm.chat_agent(history, reading, ctx, body.lang)
 
     db.execute(
@@ -68,20 +77,11 @@ def send_chat(body: ChatSendReq, user: dict = Depends(require_user)):
         (out["reply"], body.lang, datetime.now(timezone.utc)),
     )
 
-    if out.get("contextChanged"):
-        db.execute(
-            """
-            UPDATE patient_context
-            SET diagnosis = %s, medications = %s, notes = %s, updated_at = %s
-            WHERE id = 1
-            """,
-            (out.get("diagnosis", ""), out.get("medications", ""), out.get("notes", ""), datetime.now(timezone.utc)),
-        )
-
     return {
         "reply": out["reply"],
         "context": reference_data.get_context(),
         "contextChanged": bool(out.get("contextChanged")),
+        "planChanged": bool(out.get("planChanged")),
         "source": out.get("source"),
     }
 

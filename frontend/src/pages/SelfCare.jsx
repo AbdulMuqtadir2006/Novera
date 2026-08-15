@@ -55,7 +55,7 @@ function Coach({ lang, t, onContextChange }) {
       const r = await sendChat(text, lang);
       setMessages((m) => [...m, { role: "assistant", content: r.reply }]);
       setContext(r.context || context);
-      if (r.contextChanged) onContextChange?.();
+      if (r.contextChanged || r.planChanged) onContextChange?.();
     } catch {
       setMessages((m) => [...m, { role: "assistant", content: t("common.retry") }]);
     } finally {
@@ -157,7 +157,15 @@ export default function SelfCare() {
 
   const loadPlan = () => {
     setLoading(true);
-    getSelfCare(lang)
+    getSelfCare(lang, { force: false })
+      .then(setPlan)
+      .catch(() => setPlan(null))
+      .finally(() => setLoading(false));
+  };
+
+  const regeneratePlan = () => {
+    setLoading(true);
+    getSelfCare(lang, { force: true })
       .then(setPlan)
       .catch(() => setPlan(null))
       .finally(() => setLoading(false));
@@ -206,7 +214,7 @@ export default function SelfCare() {
                         <Sparkles size={11} /> {plan.source === "ai" ? t("reports.aiBadge") : t("reports.fallbackBadge")}
                       </span>
                     )}
-                    <button type="button" onClick={loadPlan} className="inline-flex items-center gap-1.5 text-sm font-medium text-depth/60 transition hover:text-depth">
+                    <button type="button" onClick={regeneratePlan} className="inline-flex items-center gap-1.5 text-sm font-medium text-depth/60 transition hover:text-depth">
                       <RefreshCw size={14} /> {t("selfcare.regenerate")}
                     </button>
                   </div>

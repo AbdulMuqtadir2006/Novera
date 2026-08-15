@@ -6,6 +6,7 @@ the frontend expects (metrics + healthAreas).
 """
 from __future__ import annotations
 
+import json
 from typing import Any, Optional
 
 from .. import db
@@ -67,6 +68,18 @@ def get_latest_row() -> Optional[dict[str, Any]]:
     )
 
 
+def get_reading_history(days: int = 30) -> list[dict[str, Any]]:
+    """Oldest -> newest, same shape as GET /api/readings. Used by report_agent's
+    get_reading_history tool so a report can reference a trend instead of only
+    ever seeing the single latest reading."""
+    days = max(1, min(365, days))
+    rows = db.fetch_all(
+        'SELECT * FROM readings ORDER BY "timestamp" DESC, id DESC LIMIT %s',
+        (days,),
+    )
+    return [row_to_reading(r) for r in reversed(rows)]
+
+
 def get_context() -> dict[str, Any]:
     row = db.fetch_one(
         "SELECT diagnosis, medications, notes, updated_at FROM patient_context WHERE id = 1"
@@ -78,3 +91,14 @@ def get_chat_history() -> list[dict[str, Any]]:
     return db.fetch_all(
         "SELECT role, content, lang, created_at FROM chat_messages ORDER BY id ASC"
     )
+
+
+def get_self_care_plan() -> Optional[dict[str, Any]]:
+    """The persisted self-care plan, or None if one has never been generated
+    (or was never persisted). Lets `POST /api/self-care` return instantly for
+    "show me what I already have" instead of always re-running the LLM."""
+    row = db.fetch_one("SELECT plan_json FROM self_care_plan WHERE id = 1")
+    if not row or not row.get("plan_json"):
+        return None
+    plan = row["plan_json"]
+    return plan if isinstance(plan, dict) else json.loads(plan)

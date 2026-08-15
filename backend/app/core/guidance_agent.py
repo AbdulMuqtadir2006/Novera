@@ -191,6 +191,24 @@ def _build_tools(state: _RunState) -> list:
             decision, model, raw_result = await asyncio.to_thread(
                 screening_llm.decide, case_row, specialist_results
             )
+        except screening_llm.HumanReviewRequested as exc:
+            await _emit(state.run_id, "tool_retest", "start", "Flagging for human review")
+            try:
+                await asyncio.to_thread(scoring.mark_retest_required, case_row["id"], exc.reason)
+            except Exception as mark_exc:
+                logger.exception("mark_retest_required failed after HumanReviewRequested")
+                await _emit(state.run_id, "tool_retest", "error", "Failed to flag for human review")
+                state.screening_done = True
+                return f"The screening decision was flagged for human review, but saving that status failed: {mark_exc}"
+            await _emit(state.run_id, "tool_retest", "success", "Flagged for human review")
+            state.screening_done = True
+            state.retest_requested = True
+            state.actions.append("flagged for human review")
+            return (
+                f"The screening decision component flagged this case for human review "
+                f"(reason: {exc.reason}). The case has already been marked RETEST_REQUIRED — "
+                "do not call request_retest for this case."
+            )
         except screening_llm.OpenRouterDecisionError:
             await asyncio.to_thread(scoring.release_reading, case_row["id"])
             await _emit(state.run_id, "agent", "error", "Screening decision failed")
