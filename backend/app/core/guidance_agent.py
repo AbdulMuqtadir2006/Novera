@@ -46,7 +46,7 @@ from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
 from .. import config, ws
-from . import appointment_graph, content_llm, reference_data, scoring, screening_llm
+from . import appointment_graph, content_llm, reasoning_stream, reference_data, scoring, screening_llm
 
 logger = logging.getLogger(__name__)
 
@@ -127,8 +127,15 @@ class _RunState:
     organ: Optional[str] = None
     confidence: Optional[float] = None
     flag: Optional[str] = None
+    reason: Optional[str] = None
     actions: list[str] = field(default_factory=list)
     hit_iteration_cap: bool = False
+    matched_cases: Optional[int] = None
+    # Canonical action vocabulary appended alongside the human-readable
+    # `actions` strings above — the single source of truth the forced
+    # reasoning-stream Decision line is built from (never parsed out of the
+    # human-readable strings). See reasoning_stream.generate_reasoning_stream.
+    action_tokens: list[str] = field(default_factory=list)
 
 
 def _load_reading() -> Optional[dict[str, Any]]:
@@ -225,6 +232,10 @@ def _build_tools(state: _RunState) -> list:
             (r["flag"] for r in specialist_results if r["organ"] == decision["prediction"]),
             "medium",
         )
+        state.matched_cases = next(
+            (r["matched_cases"] for r in specialist_results if r["organ"] == decision["prediction"]),
+            None,
+        )
         await _emit(
             state.run_id,
             "agent",
@@ -236,6 +247,7 @@ def _build_tools(state: _RunState) -> list:
         state.organ = decision["prediction"]
         state.confidence = decision["confidence"]
         state.flag = flag
+        state.reason = decision.get("reason")
         return (
             f"Screening complete. Predicted organ: {decision['prediction']}, "
             f"confidence: {decision['confidence']:.2f}, flag: {flag}. Use this to decide "
@@ -264,6 +276,7 @@ def _build_tools(state: _RunState) -> list:
             await _emit(state.run_id, "tool_report", "error", "Report generation failed")
             return f"Report generation failed: {exc}"
         state.actions.append("report generated")
+        state.action_tokens.append("report")
         await _emit(state.run_id, "tool_report", "success", "Report generated")
         return "Report generated successfully."
 
@@ -284,6 +297,7 @@ def _build_tools(state: _RunState) -> list:
             await _emit(state.run_id, "tool_voice", "error", "Voice script generation failed")
             return f"Voice script generation failed: {exc}"
         state.actions.append("voice script generated")
+        state.action_tokens.append("voice_script")
         await _emit(state.run_id, "tool_voice", "success", "Voice script generated")
         return "Voice script generated successfully."
 
@@ -308,6 +322,7 @@ def _build_tools(state: _RunState) -> list:
             await _emit(state.run_id, "tool_selfcare", "error", "Self-care plan generation failed")
             return f"Self-care plan generation failed: {exc}"
         state.actions.append("self-care plan generated")
+        state.action_tokens.append("self_care_plan")
         await _emit(state.run_id, "tool_selfcare", "success", "Self-care plan generated")
         return "Self-care plan generated successfully."
 
@@ -329,6 +344,7 @@ def _build_tools(state: _RunState) -> list:
             await _emit(state.run_id, "tool_whatsapp", "error", "Appointment offer simulation failed")
             return f"Appointment offer simulation failed: {exc}"
         state.actions.append("appointment offer simulated")
+        state.action_tokens.append("clinic_offer")
         await _emit(state.run_id, "tool_whatsapp", "success", "Appointment offer simulated")
         return "Appointment offer simulated successfully (no real message was sent)."
 
@@ -347,6 +363,7 @@ def _build_tools(state: _RunState) -> list:
             return f"Retest request failed: {exc}"
         state.retest_requested = True
         state.actions.append("retest requested")
+        state.action_tokens.append("request_retest")
         await _emit(state.run_id, "tool_retest", "success", "Retest requested")
         return "Retest requested successfully."
 
@@ -459,6 +476,29 @@ async def run(reading_row: dict[str, Any]) -> None:  # noqa: ARG001 - see below
                     messages.append(ToolMessage(content=str(result_text), tool_call_id=call_id))
             else:
                 state.hit_iteration_cap = True
+
+            if state.organ:
+                narration_lines = await asyncio.to_thread(
+                    reasoning_stream.generate_reasoning_stream,
+                    state.organ,
+                    state.confidence,
+                    state.reason or "",
+                    state.flag,
+                    state.matched_cases,
+                    state.action_tokens,
+                )
+                if narration_lines:
+                    for line in narration_lines:
+                        await ws.broadcast(
+                            {
+                                "type": "narration",
+                                "runId": run_id,
+                                "source": "device",
+                                "label": line,
+                                "ts": _now_iso(),
+                            }
+                        )
+                        await asyncio.sleep(0.4)
 
         await ws.broadcast(
             {

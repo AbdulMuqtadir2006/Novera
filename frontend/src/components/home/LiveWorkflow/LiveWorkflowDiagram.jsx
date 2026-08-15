@@ -17,7 +17,7 @@ import {
 
 const LIVE_WINDOW_MS = 90_000;
 const DEMO_STEP_MS = 2800;
-const EVENT_LOG_MAX = 5;
+const EVENT_LOG_MAX = 7;
 
 // Brand accents standing in for the reference screenshot's literal palette —
 // same idle/running/passed/failed language PipelineVisualizer already uses

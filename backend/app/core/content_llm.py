@@ -31,6 +31,13 @@ class LLMError(RuntimeError):
     pass
 
 
+def make_llm(temperature: float = 0.3, max_tokens: int = 1200) -> ChatOpenAI:
+    """Public alias of _make_llm for other core modules that need the same
+    OpenRouter ChatOpenAI construction (e.g. reasoning_stream.py) without
+    duplicating the client-setup boilerplate a third time in this codebase."""
+    return _make_llm(temperature=temperature, max_tokens=max_tokens)
+
+
 def _make_llm(temperature: float = 0.3, max_tokens: int = 1200) -> ChatOpenAI:
     if not config.AI_ENABLED:
         raise LLMError("OPENROUTER_API_KEY not configured (must start with sk-or-).")

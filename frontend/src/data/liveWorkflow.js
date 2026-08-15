@@ -9,9 +9,11 @@
 // anchors line up exactly regardless of viewport — LiveWorkflowDiagram.jsx
 // measures the real container width and applies a CSS `scale()` transform
 // to this canvas instead of letting it overflow/scroll. Column gaps below
-// are intentionally tight (only as wide as each pair of node half-widths
-// needs, plus a small margin) — every px trimmed from CANVAS_W raises the
-// effective scale (and therefore legibility) at every viewport width.
+// are deliberately generous (well beyond each pair of node half-widths) so
+// wires have visible curve and columns don't read as stacked/congested on
+// wide desktop viewports — CANVAS_W is kept in the 1200-1280 range rather
+// than wider still so scale-down legibility on narrow/mobile viewports
+// doesn't regress.
 import {
   Wifi,
   ShieldCheck,
@@ -29,8 +31,8 @@ import {
   Wrench,
 } from "lucide-react";
 
-export const CANVAS_W = 1000;
-export const CANVAS_H = 520;
+export const CANVAS_W = 1240;
+export const CANVAS_H = 560;
 
 // x/y = card center. Widths are sized generously against the actual longest
 // label per node ("Self-Care Plan", "Request Retest", "Sensor Reading" —
@@ -43,20 +45,20 @@ export const CANVAS_H = 520;
 // baseline accent — independent of live run status, which is layered on top
 // (see STATUS_STYLE in LiveWorkflowDiagram.jsx).
 export const WORKFLOW_NODES = [
-  { id: "device", labelKey: "liveWorkflow.node.device", icon: Wifi, x: 85, y: 260, w: 150, h: 64, group: "signal" },
-  { id: "validate", labelKey: "liveWorkflow.node.validate", icon: ShieldCheck, x: 260, y: 260, w: 140, h: 64, group: "signal" },
+  { id: "device", labelKey: "liveWorkflow.node.device", icon: Wifi, x: 85, y: 280, w: 150, h: 64, group: "signal" },
+  { id: "validate", labelKey: "liveWorkflow.node.validate", icon: ShieldCheck, x: 260, y: 280, w: 140, h: 64, group: "signal" },
 
-  { id: "score_kidney", labelKey: "liveWorkflow.node.scoreKidney", icon: Droplet, x: 440, y: 85, w: 164, h: 60, group: "iris" },
-  { id: "score_stomach", labelKey: "liveWorkflow.node.scoreStomach", icon: Utensils, x: 440, y: 260, w: 164, h: 60, group: "iris" },
-  { id: "score_oral", labelKey: "liveWorkflow.node.scoreOral", icon: Smile, x: 440, y: 435, w: 164, h: 60, group: "iris" },
+  { id: "score_kidney", labelKey: "liveWorkflow.node.scoreKidney", icon: Droplet, x: 520, y: 85, w: 164, h: 60, group: "iris" },
+  { id: "score_stomach", labelKey: "liveWorkflow.node.scoreStomach", icon: Utensils, x: 520, y: 280, w: 164, h: 60, group: "iris" },
+  { id: "score_oral", labelKey: "liveWorkflow.node.scoreOral", icon: Smile, x: 520, y: 475, w: 164, h: 60, group: "iris" },
 
-  { id: "agent", labelKey: "liveWorkflow.node.agent", icon: Bot, x: 660, y: 260, w: 210, h: 108, group: "vital" },
+  { id: "agent", labelKey: "liveWorkflow.node.agent", icon: Bot, x: 820, y: 280, w: 210, h: 108, group: "vital" },
 
-  { id: "tool_report", labelKey: "liveWorkflow.node.toolReport", icon: FileText, x: 885, y: 45, w: 172, h: 58, group: "amber" },
-  { id: "tool_voice", labelKey: "liveWorkflow.node.toolVoice", icon: Mic, x: 885, y: 152, w: 172, h: 58, group: "amber" },
-  { id: "tool_selfcare", labelKey: "liveWorkflow.node.toolSelfcare", icon: HeartPulse, x: 885, y: 260, w: 172, h: 58, group: "amber" },
-  { id: "tool_whatsapp", labelKey: "liveWorkflow.node.toolWhatsapp", icon: MessageCircle, x: 885, y: 368, w: 172, h: 58, group: "amber" },
-  { id: "tool_retest", labelKey: "liveWorkflow.node.toolRetest", icon: RotateCcw, x: 885, y: 475, w: 172, h: 58, group: "amber" },
+  { id: "tool_report", labelKey: "liveWorkflow.node.toolReport", icon: FileText, x: 1125, y: 65, w: 172, h: 58, group: "amber" },
+  { id: "tool_voice", labelKey: "liveWorkflow.node.toolVoice", icon: Mic, x: 1125, y: 172, w: 172, h: 58, group: "amber" },
+  { id: "tool_selfcare", labelKey: "liveWorkflow.node.toolSelfcare", icon: HeartPulse, x: 1125, y: 280, w: 172, h: 58, group: "amber" },
+  { id: "tool_whatsapp", labelKey: "liveWorkflow.node.toolWhatsapp", icon: MessageCircle, x: 1125, y: 388, w: 172, h: 58, group: "amber" },
+  { id: "tool_retest", labelKey: "liveWorkflow.node.toolRetest", icon: RotateCcw, x: 1125, y: 495, w: 172, h: 58, group: "amber" },
 ];
 
 export const NODE_BY_ID = Object.fromEntries(WORKFLOW_NODES.map((n) => [n.id, n]));
@@ -89,9 +91,9 @@ export const WORKFLOW_EDGES = [
 // Model/Memory/Tool trio under its "AI Agent" node). dx/dy are offsets from
 // the agent node's own center.
 export const AGENT_SATELLITES = [
-  { id: "chatModel", labelKey: "liveWorkflow.satellite.chatModel", detailKey: "liveWorkflow.satellite.chatModelDetail", icon: Sparkles, dx: -140, dy: 98 },
-  { id: "memory", labelKey: "liveWorkflow.satellite.memory", detailKey: "liveWorkflow.satellite.memoryDetail", icon: Database, dx: 0, dy: 98 },
-  { id: "tool", labelKey: "liveWorkflow.satellite.tool", detailKey: "liveWorkflow.satellite.toolDetail", icon: Wrench, dx: 140, dy: 98 },
+  { id: "chatModel", labelKey: "liveWorkflow.satellite.chatModel", detailKey: "liveWorkflow.satellite.chatModelDetail", icon: Sparkles, dx: -120, dy: 150 },
+  { id: "memory", labelKey: "liveWorkflow.satellite.memory", detailKey: "liveWorkflow.satellite.memoryDetail", icon: Database, dx: 0, dy: 150 },
+  { id: "tool", labelKey: "liveWorkflow.satellite.tool", detailKey: "liveWorkflow.satellite.toolDetail", icon: Wrench, dx: 120, dy: 150 },
 ];
 
 // Illustrative loop for the always-alive idle/preview animation (no backend
