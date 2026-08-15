@@ -478,9 +478,9 @@ async def run(reading_row: dict[str, Any]) -> None:  # noqa: ARG001 - see below
                 state.hit_iteration_cap = True
 
             if state.organ:
-                # TEMP DIAGNOSTIC (2026-08-15): confirms this branch is
-                # actually reached before the LLM call — remove once the
-                # narration feature is confirmed working live, see chat.
+                # Real, permanent status update — fills the gap between the
+                # last tool completing and the narration lines arriving with
+                # something true, rather than a silent stall.
                 await ws.broadcast(
                     {
                         "type": "narration",
@@ -490,15 +490,31 @@ async def run(reading_row: dict[str, Any]) -> None:  # noqa: ARG001 - see below
                         "ts": _now_iso(),
                     }
                 )
-                narration_lines = await asyncio.to_thread(
-                    reasoning_stream.generate_reasoning_stream,
-                    state.organ,
-                    state.confidence,
-                    state.reason or "",
-                    state.flag,
-                    state.matched_cases,
-                    state.action_tokens,
-                )
+                # Hard timeout around this whole call, independent of
+                # whatever timeout/retry settings ChatOpenAI itself is
+                # configured with. This feature is decorative enrichment —
+                # it must NEVER be able to block the throttle/_in_progress
+                # lock indefinitely, since that would jam every future
+                # autonomous run until the server restarts. asyncio.wait_for
+                # can't force-kill the underlying network thread if it's
+                # truly stuck, but it guarantees `run()` itself moves on and
+                # reaches the finally block below that releases the lock.
+                try:
+                    narration_lines = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            reasoning_stream.generate_reasoning_stream,
+                            state.organ,
+                            state.confidence,
+                            state.reason or "",
+                            state.flag,
+                            state.matched_cases,
+                            state.action_tokens,
+                        ),
+                        timeout=25.0,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("guidance_agent run %s: reasoning stream narration timed out, skipping", run_id)
+                    narration_lines = None
                 if narration_lines:
                     for line in narration_lines:
                         # Strip the "> " prefix reasoning_stream.py keeps (it
