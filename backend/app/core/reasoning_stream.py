@@ -93,10 +93,37 @@ def _build_user_message(
 
 
 def _parse_lines(raw: str) -> list[str]:
-    lines = []
-    for line in (raw or "").splitlines():
-        stripped = line.strip()
-        if not stripped.startswith("> "):
+    """Lenient parser: the spec asks the model for `> `-prefixed lines, but
+    cheap/fast content models don't always follow formatting instructions to
+    the letter (may drop the prefix, wrap the whole thing in a markdown code
+    fence, or use `-`/`*` bullets instead). Being strict here means a purely
+    cosmetic formatting miss silently kills the whole feature (returns None),
+    which defeats the point — so this accepts any non-empty, non-heading line
+    regardless of exactly how it's decorated, and strips decoration uniformly.
+    Returned lines are PLAIN TEXT (no `> ` prefix) — the frontend ticker
+    already renders its own `> ` glyph for every entry, mechanical or
+    narrated, so a prefix baked in here would double up as `> > text`."""
+    text = (raw or "").strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        head, _, rest = text.partition("\n")
+        if rest and len(head) < 20:  # drop a leading ```json / ```text tag line
+            text = rest
+
+    lines: list[str] = []
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("> "):
+            stripped = stripped[2:].strip()
+        elif stripped[:1] == ">":
+            stripped = stripped[1:].strip()
+        elif stripped[:2] in ("- ", "* "):
+            stripped = stripped[2:].strip()
+        elif stripped.startswith("#") or stripped.startswith("```"):
+            continue  # stray markdown heading/fence remnant, not a log line
+        if not stripped:
             continue
         if len(stripped) > MAX_LINE_LENGTH:
             stripped = stripped[:MAX_LINE_LENGTH].rstrip()
@@ -114,8 +141,8 @@ def generate_reasoning_stream(
     matched_cases: int | None,
     action_tokens: list[str],
 ) -> list[str] | None:
-    """Returns a short list of `> `-prefixed narration lines ending with a
-    forced, code-constructed `> Decision: ...` line, or None on any failure
+    """Returns a short list of plain-text narration lines ending with a
+    forced, code-constructed "Decision: ..." line, or None on any failure
     (never raises). The Decision line is ALWAYS overwritten with the real
     action_tokens list regardless of what the LLM produced — see module
     docstring."""
@@ -130,10 +157,11 @@ def generate_reasoning_stream(
         )
         lines = _parse_lines(str(response.content))
         if len(lines) < 2:
+            logger.info("generate_reasoning_stream: fewer than 2 usable lines parsed, skipping narration")
             return None
 
-        forced_decision = f"> Decision: {', '.join(action_tokens) if action_tokens else 'none'}"
-        if lines[-1].startswith("> Decision:"):
+        forced_decision = f"Decision: {', '.join(action_tokens) if action_tokens else 'none'}"
+        if lines[-1].lower().startswith("decision:"):
             lines[-1] = forced_decision
         else:
             lines.append(forced_decision)

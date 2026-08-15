@@ -489,12 +489,18 @@ async def run(reading_row: dict[str, Any]) -> None:  # noqa: ARG001 - see below
                 )
                 if narration_lines:
                     for line in narration_lines:
+                        # Strip the "> " prefix reasoning_stream.py keeps (it
+                        # matches the spec's literal output format) — the
+                        # frontend ticker already renders its own "> " glyph
+                        # for every entry uniformly, so broadcasting it too
+                        # would double up as "> > text".
+                        clean_line = line[2:] if line.startswith("> ") else line
                         await ws.broadcast(
                             {
                                 "type": "narration",
                                 "runId": run_id,
                                 "source": "device",
-                                "label": line,
+                                "label": clean_line,
                                 "ts": _now_iso(),
                             }
                         )
