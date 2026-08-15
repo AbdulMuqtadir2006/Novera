@@ -1,6 +1,6 @@
 # AI Context — Novera
 
-Last updated: 2026-08-14. Read this first in any new session before touching the code — it captures
+Last updated: 2026-08-15. Read this first in any new session before touching the code — it captures
 what's actually built, deployed, and working right now, plus the non-obvious gotchas that cost real
 debugging time to find.
 
@@ -219,13 +219,60 @@ target had to be updated to `ON CONFLICT (slot_start) WHERE status = 'confirmed'
 partial index as its arbiter. `list_bookings`/`list_upcoming_for_*` now filter to `status = 'confirmed'`
 so cancelled rows don't resurface in the Appointments page or the agent's own fact-gathering.
 
+### Screening decision converted to bounded tool-calling (added 2026-08-15)
+
+`screening_llm.decide()` used to be exactly one forced-tool-call OpenRouter invocation. It's now a
+small tool-calling loop (`MAX_ITERATIONS = 4`) that can optionally call `get_organ_reference_ranges`
+(double-check a specialist result's range_score against the actual configured bands) or
+`get_closest_confirmed_cases` (look deeper than the pre-computed top-3 similar cases) before
+committing — or call `flag_for_human_review(reason)` instead of forcing a guess on a genuinely
+ambiguous case (new `HumanReviewRequested` exception, routed to `scoring.mark_retest_required`, same
+status/shape a validation failure already used — zero frontend changes needed).
+
+**Deliberately unchanged, and this is the important part**: all 3 organs are still scored
+deterministically by `scoring.py` *before* `decide()` is called — that loop, and both its event
+emitters (`process_case_stream`'s SSE `score:{organ}` events for the Appointments page's
+`PipelineVisualizer`, and `guidance_agent.py`'s own WS `score_kidney/score_stomach/score_oral`
+broadcasts), are byte-for-byte untouched. `decide(reading, specialist_results) -> (decision,
+model_name, raw_result)` kept its exact external signature and return contract, so **neither live
+integration surface needed a single line changed** — verified live 2026-08-15 via both paths (a
+manual "Deep AI analysis" run showing a real evidence-citing reason, and a fresh device reading
+lighting up the homepage diagram end to end). A plain-text reply with no tool call is still never
+accepted as a valid decision — the no-fabrication guarantee applies exactly as before, just enforced
+across a bounded loop instead of a single call. `decision_audit.llm_result_json` now also stores a
+`tool_trace` (which investigative tools were called and what they returned) alongside the existing
+prediction/confidence/reason.
+
+### Self-care coach converted to real tool-calling (added 2026-08-15)
+
+Two behavior changes, both live-verified: (1) `POST /api/self-care` no longer regenerates the plan
+from scratch on every page load — a new single-row `self_care_plan` table persists the last generated
+plan, and the request gained a `force` flag (`false` = return the persisted plan instantly, no LLM
+call; `true` = regenerate, used by the Dashboard's "Regenerate" button). (2) `POST /api/chat` (the
+coach) is now a real tool-calling agent (`content_llm.chat_agent`, same `bind_tools` loop shape as
+`guidance_agent.py`/`whatsapp_agent.py`) instead of a single call that regenerated the entire
+patient-context blob every turn. Tools: `update_diet_plan_field` (targeted edit to one meal, persisted
+to `self_care_plan`), `update_patient_context` (merges into one field of `patient_context`, never
+overwrites), `lookup_food_nutrition` (a ~40-food internal dataset — deliberately not an external API,
+no new credentials), `check_dietary_conflict` (lightweight rule-based, not another LLM call). Response
+gained `planChanged` (additive, alongside the existing `contextChanged`) so the frontend knows to
+refresh the plan view after a chat-driven edit. Verified live: asking the coach to swap a meal for a
+lower-sodium option produced a real persisted diet-plan edit, not just a chat reply describing one.
+
 ## Key files / architecture
 
 - `backend/app/main.py` — FastAPI entry; routers in `backend/app/routers/`.
-- `backend/app/core/scoring.py`, `screening_llm.py` — the screening pipeline: reference-range score +
-  similarity score + exactly one OpenRouter decision call. **No trained ML model** — deliberate.
-- `backend/app/core/content_llm.py` — shared LLM client for report/voice/self-care/chat, uses
-  `OPENROUTER_MODEL_CONTENT`.
+- `backend/app/core/scoring.py` — the deterministic organ-scoring math (range score + similarity
+  score), untouched by the agentic conversion below. **No trained ML model** — deliberate.
+- `backend/app/core/screening_llm.py` (`decide()` converted 2026-08-15) — all 3 organs are still
+  scored deterministically *before* `decide()` is ever called (unchanged); `decide()` itself is now a
+  small bounded tool-calling loop (`get_organ_reference_ranges`, `get_closest_confirmed_cases`,
+  `flag_for_human_review`, `FinalDecision`) instead of one forced call — see the dated section below
+  for the full design and why its external contract deliberately never changed.
+- `backend/app/core/content_llm.py` — LLM client for report/voice/self-care/chat, uses
+  `OPENROUTER_MODEL_CONTENT`. `report_agent` has an optional `get_reading_history` tool (trend
+  awareness). The self-care chat coach (`chat_agent`, converted 2026-08-15) is a real tool-calling
+  agent — see the dated section below.
 - `backend/app/core/fallbacks.py` — deterministic bilingual fallback for every AI call except the
   screening decision (which releases the case back to `NEW` with no invented result if OpenRouter
   fails, rather than fabricating a fallback answer).
