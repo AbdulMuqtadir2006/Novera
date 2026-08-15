@@ -478,6 +478,18 @@ async def run(reading_row: dict[str, Any]) -> None:  # noqa: ARG001 - see below
                 state.hit_iteration_cap = True
 
             if state.organ:
+                # TEMP DIAGNOSTIC (2026-08-15): confirms this branch is
+                # actually reached before the LLM call — remove once the
+                # narration feature is confirmed working live, see chat.
+                await ws.broadcast(
+                    {
+                        "type": "narration",
+                        "runId": run_id,
+                        "source": "device",
+                        "label": "Preparing reasoning stream...",
+                        "ts": _now_iso(),
+                    }
+                )
                 narration_lines = await asyncio.to_thread(
                     reasoning_stream.generate_reasoning_stream,
                     state.organ,
