@@ -51,6 +51,10 @@ export default {
         shimmer: {
           "100%": { transform: "translateX(100%)" },
         },
+        "blink-caret": {
+          "0%, 100%": { opacity: "1" },
+          "50%": { opacity: "0" },
+        },
       },
       animation: {
         "pulse-ring": "pulse-ring 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite",
@@ -58,6 +62,7 @@ export default {
         "drift-a": "drift-a 18s ease-in-out infinite",
         "drift-b": "drift-b 22s ease-in-out infinite",
         shimmer: "shimmer 1.8s infinite",
+        "blink-caret": "blink-caret 1s step-end infinite",
       },
       transitionTimingFunction: {
         expo: "cubic-bezier(0.16, 1, 0.3, 1)",

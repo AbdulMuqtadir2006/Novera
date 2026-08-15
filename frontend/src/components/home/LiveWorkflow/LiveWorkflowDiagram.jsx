@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { Check, AlertTriangle, Loader2 } from "lucide-react";
 import { useLang } from "../../../i18n/LanguageContext";
 import { usePrefersReducedMotion } from "../../../hooks/usePrefersReducedMotion";
@@ -29,6 +29,11 @@ const STATUS_COLOR = {
   success: "#3DDC97",
   error: "#F2A93E",
 };
+
+// Warm accent reserved for the one-shot "run just concluded" beat — kept
+// distinct from every per-node status color so it reads as a meta event
+// (the agent finished deciding) rather than another node lighting up.
+const CONCLUDE_COLOR = "#F2A93E";
 
 function idleStatusMap() {
   return Object.fromEntries(ALL_NODE_IDS.map((id) => [id, "idle"]));
@@ -105,16 +110,17 @@ function StatusBadge({ status, reducedMotion }) {
 // on top of the normal card chrome: a blurred radial aura that intensifies
 // while active and settles once it decides, plus the same expanding-ring
 // pulse AgentsSection/ComingSoon already use elsewhere for "this is alive."
-function AgentCore({ status, color, reducedMotion }) {
+function AgentCore({ status, color, reducedMotion, justConcluded }) {
+  const auraColor = justConcluded ? CONCLUDE_COLOR : color;
   return (
     <>
       <span
         className={`pointer-events-none absolute -inset-4 rounded-[28px] blur-xl transition-opacity duration-500 ${
-          status === "active" && !reducedMotion ? "animate-pulse" : ""
+          (status === "active" || justConcluded) && !reducedMotion ? "animate-pulse" : ""
         }`}
         style={{
-          background: `radial-gradient(circle, ${color}55 0%, transparent 72%)`,
-          opacity: status === "idle" ? 0.12 : status === "success" ? 0.35 : 0.65,
+          background: `radial-gradient(circle, ${auraColor}${justConcluded ? "70" : "55"} 0%, transparent 72%)`,
+          opacity: justConcluded ? 0.8 : status === "idle" ? 0.12 : status === "success" ? 0.35 : 0.65,
         }}
         aria-hidden="true"
       />
@@ -125,11 +131,23 @@ function AgentCore({ status, color, reducedMotion }) {
           aria-hidden="true"
         />
       )}
+      {/* One-shot "the agent just decided" ring — fires once per run_end,
+          warm-colored so it never gets mistaken for another status pulse. */}
+      {justConcluded && !reducedMotion && (
+        <motion.span
+          className="pointer-events-none absolute -inset-2.5 rounded-[26px] border-2"
+          style={{ borderColor: CONCLUDE_COLOR, boxShadow: `0 0 32px -4px ${CONCLUDE_COLOR}` }}
+          initial={{ opacity: 0.9, scale: 0.94 }}
+          animate={{ opacity: 0, scale: 1.4 }}
+          transition={{ duration: 1.15, ease: "easeOut" }}
+          aria-hidden="true"
+        />
+      )}
     </>
   );
 }
 
-function NodeCard({ node, status, big, reducedMotion, t }) {
+function NodeCard({ node, status, big, reducedMotion, t, justConcluded }) {
   const color = STATUS_COLOR[status];
   const isAgent = node.id === "agent";
 
@@ -163,21 +181,28 @@ function NodeCard({ node, status, big, reducedMotion, t }) {
 
   return (
     <motion.div
-      className="absolute flex items-center gap-2.5 rounded-2xl border bg-white/[0.03] px-3 backdrop-blur-sm"
+      className={`absolute flex items-center gap-2.5 rounded-2xl border px-3 backdrop-blur-sm ${
+        isAgent ? "bg-white/[0.05]" : "bg-white/[0.03]"
+      }`}
       style={{
         left: node.x - node.w / 2,
         top: node.y - node.h / 2,
         width: node.w,
         height: node.h,
         borderColor: status === "idle" ? "rgba(255,255,255,0.10)" : `${color}66`,
-        boxShadow: status === "idle" ? "none" : `0 0 24px -10px ${color}`,
+        boxShadow:
+          status === "idle"
+            ? "inset 0 1px 0 0 rgba(255,255,255,0.04)"
+            : `0 0 24px -10px ${color}, inset 0 1px 0 0 rgba(255,255,255,0.06)`,
       }}
       animate={animate}
       transition={transition}
       role="status"
       aria-label={`${t(node.labelKey)} — ${t(`liveWorkflow.state.${status}`)}`}
     >
-      {isAgent && <AgentCore status={status} color={color} reducedMotion={reducedMotion} />}
+      {isAgent && (
+        <AgentCore status={status} color={color} reducedMotion={reducedMotion} justConcluded={justConcluded} />
+      )}
       <NodeIcon node={node} status={status} reducedMotion={reducedMotion} />
       <span className="min-w-0 flex-1">
         <span
@@ -199,9 +224,10 @@ function SatelliteChip({ sat, agent, t }) {
   const Icon = sat.icon;
   return (
     <div
-      className="absolute flex w-[132px] -translate-x-1/2 flex-col items-center gap-1 rounded-xl border border-dashed border-iris/35 bg-white/[0.02] px-2.5 py-2 text-center"
+      className="absolute flex w-[132px] -translate-x-1/2 flex-col items-center gap-1 rounded-xl border border-dashed border-iris/30 bg-iris/[0.035] px-2.5 py-2 text-center backdrop-blur-[2px]"
       style={{ left: x, top: y }}
     >
+      <span className="h-1 w-1 rounded-full bg-iris/60" aria-hidden="true" />
       <Icon size={13} className="text-iris" strokeWidth={1.8} />
       <span className="font-mono text-[9px] uppercase tracking-wider text-slate-400">{t(sat.labelKey)}</span>
       <span className="text-[10px] leading-tight text-slate-500">{t(sat.detailKey)}</span>
@@ -266,7 +292,11 @@ function SatelliteWire({ sat, agent }) {
 
 function LiveIndicator({ isLive, t }) {
   return (
-    <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1">
+    <div
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 transition-colors duration-500 ${
+        isLive ? "border-status-good/30 bg-status-good/[0.06]" : "border-white/10 bg-white/[0.03]"
+      }`}
+    >
       <span className="relative flex h-1.5 w-1.5">
         {isLive && (
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-status-good opacity-60" />
@@ -319,6 +349,12 @@ function EventTicker({ entries, isLive, reducedMotion, t }) {
                 className="truncate font-mono text-[10.5px] leading-snug text-signal/90"
               >
                 <span className="text-slate-600">{">"}</span> {entry.label}
+                {isLast && !reducedMotion && (
+                  <span
+                    className="ml-0.5 inline-block h-[10px] w-[2px] translate-y-[1px] animate-blink-caret bg-signal/70 align-middle"
+                    aria-hidden="true"
+                  />
+                )}
               </motion.li>
             );
           })}
@@ -335,7 +371,7 @@ function EventTicker({ entries, isLive, reducedMotion, t }) {
 function WorkflowLive() {
   const { t } = useLang();
   const reducedMotion = usePrefersReducedMotion();
-  const { connected, nodeStatus, currentLabel, lastEventAt } = useWorkflowSocket();
+  const { connected, nodeStatus, currentLabel, lastRunSummary, lastEventAt } = useWorkflowSocket();
 
   const [isLive, setIsLive] = useState(false);
   useEffect(() => {
@@ -364,6 +400,26 @@ function WorkflowLive() {
 
   const demoStatus = useMemo(() => buildDemoStatus(demoStep), [demoStep]);
   const status = isLive ? nodeStatus : demoStatus;
+  const anyActive = useMemo(() => Object.values(status).some((s) => s === "active"), [status]);
+
+  // "Conclusion" beat: a brief warm accent marking the moment a real run
+  // finishes deciding, distinct from any per-node status change. Keyed off
+  // `lastRunSummary` (only set on run_end) rather than status, since node
+  // status alone can't distinguish "a run just wrapped" from "the demo loop
+  // happened to settle." Reset on dropping out of live so the next real run
+  // always re-fires even if it happens to carry the same summary text.
+  const [justConcluded, setJustConcluded] = useState(false);
+  const prevSummaryRef = useRef(null);
+  useEffect(() => {
+    if (!isLive) prevSummaryRef.current = null;
+  }, [isLive]);
+  useEffect(() => {
+    if (!isLive || !lastRunSummary || lastRunSummary === prevSummaryRef.current || reducedMotion) return undefined;
+    prevSummaryRef.current = lastRunSummary;
+    setJustConcluded(true);
+    const timer = setTimeout(() => setJustConcluded(false), 1300);
+    return () => clearTimeout(timer);
+  }, [isLive, lastRunSummary, reducedMotion]);
 
   // Rolling local history of real event labels for the ticker — the hook
   // only exposes the single latest label, so we accumulate our own capped
@@ -432,14 +488,53 @@ function WorkflowLive() {
               style={{ width: CANVAS_W, height: CANVAS_H, transform: `scale(${scale})` }}
             >
               {/* Ambient atmosphere — the canvas stays faintly alive even
-                  between discrete events, not just static except mid-transition. */}
+                  between discrete events, not just static except mid-transition.
+                  Layered: a vignette to draw focus to center, a core "energy
+                  field" glow centered on the Guidance Agent that breathes
+                  brighter while anything is actually active, drifting brand-color
+                  blobs for depth, and a one-shot warm wash on run conclusion. */}
               <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
+                <div
+                  className="absolute inset-0"
+                  style={{
+                    background:
+                      "radial-gradient(ellipse 72% 68% at 50% 50%, transparent 55%, rgba(3,4,14,0.5) 100%)",
+                  }}
+                />
+                <div
+                  className="absolute inset-0 transition-opacity duration-[1400ms] ease-out"
+                  style={{
+                    background: `radial-gradient(circle at 66% 50%, ${STATUS_COLOR.active}${
+                      anyActive ? "16" : "09"
+                    } 0%, transparent 60%)`,
+                  }}
+                />
                 {!reducedMotion && (
                   <>
                     <span className="absolute -left-10 top-6 h-56 w-56 animate-drift-a rounded-full bg-signal/[0.05] blur-[80px]" />
                     <span className="absolute -right-10 bottom-0 h-64 w-64 animate-drift-b rounded-full bg-vital/[0.05] blur-[90px]" />
+                    <span
+                      className="absolute left-[62%] top-[45%] h-72 w-72 -translate-x-1/2 -translate-y-1/2 animate-drift-a rounded-full bg-iris/[0.045] blur-[100px]"
+                      style={{ animationDelay: "-6s" }}
+                    />
                   </>
                 )}
+                <AnimatePresence>
+                  {justConcluded && (
+                    <motion.div
+                      key="conclude-wash"
+                      className="absolute inset-0"
+                      style={{
+                        background:
+                          "radial-gradient(ellipse 60% 55% at 66% 50%, rgba(242,169,62,0.16) 0%, rgba(236,97,232,0.08) 45%, transparent 75%)",
+                      }}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: [0, 1, 0] }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 1.3, ease: "easeInOut" }}
+                    />
+                  )}
+                </AnimatePresence>
               </div>
 
               <svg
@@ -475,6 +570,7 @@ function WorkflowLive() {
                   big={node.id === "agent"}
                   reducedMotion={reducedMotion}
                   t={t}
+                  justConcluded={node.id === "agent" && justConcluded}
                 />
               ))}
 

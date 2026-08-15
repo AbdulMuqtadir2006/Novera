@@ -226,6 +226,11 @@ export const translations = {
     "liveWorkflow.node.toolWhatsapp": "Clinic Offer",
     "liveWorkflow.node.toolRetest": "Request Retest",
 
+    "liveWorkflow.legend.input": "Input",
+    "liveWorkflow.legend.scores": "Health Scores",
+    "liveWorkflow.legend.guidance": "Guidance",
+    "liveWorkflow.legend.actions": "Actions",
+
     "liveWorkflow.satellite.chatModel": "Chat Model",
     "liveWorkflow.satellite.chatModelDetail": "Claude Sonnet 5",
     "liveWorkflow.satellite.memory": "Memory",
@@ -442,6 +447,11 @@ export const translations = {
     "liveWorkflow.node.toolSelfcare": "خطة العناية الذاتية",
     "liveWorkflow.node.toolWhatsapp": "عرض العيادة",
     "liveWorkflow.node.toolRetest": "طلب إعادة الفحص",
+
+    "liveWorkflow.legend.input": "الإدخال",
+    "liveWorkflow.legend.scores": "تقييمات الصحة",
+    "liveWorkflow.legend.guidance": "الإرشاد",
+    "liveWorkflow.legend.actions": "الإجراءات",
 
     "liveWorkflow.satellite.chatModel": "نموذج المحادثة",
     "liveWorkflow.satellite.chatModelDetail": "Claude Sonnet 5",
