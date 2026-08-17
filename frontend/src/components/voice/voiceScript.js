@@ -30,7 +30,7 @@ export function buildVoiceScript(reading) {
   } else {
     const names = watch.map((a) => a.name).join(", ");
     parts.push(
-      `Most of your health areas look steady. The ones worth a closer look are: ${names}. You'll find specific suggestions on your Self Care page.`
+      `Most of your health areas look steady. The ones worth a closer look are: ${names}. You'll find specific suggestions on your Natural Recovery page.`
     );
   }
 

@@ -9,7 +9,7 @@ const columns = [
       { label: "Dashboard", to: "/dashboard" },
       { label: "Reports", to: "/reports" },
       { label: "Voice", to: "/voice" },
-      { label: "Self Care", to: "/self-care" },
+      { label: "Natural Recovery", to: "/self-care" },
     ],
   },
   {

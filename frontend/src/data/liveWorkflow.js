@@ -35,7 +35,7 @@ export const CANVAS_W = 1240;
 export const CANVAS_H = 560;
 
 // x/y = card center. Widths are sized generously against the actual longest
-// label per node ("Self-Care Plan", "Request Retest", "Sensor Reading" —
+// label per node ("Natural Recovery", "Request Retest", "Sensor Reading" —
 // 12-14 chars at 12-13px font-body-semibold plus the icon/badge/padding
 // chrome) so `truncate` in NodeCard is a safety net, not the default
 // behavior — a demo diagram reading "Kidn…" in front of judges is worse

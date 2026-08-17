@@ -24,6 +24,6 @@ export const agents = [
     id: "guidance",
     name: "Guidance Agent",
     icon: Compass,
-    copy: "Builds your next steps — self-care suggestions, your spoken summary, your report.",
+    copy: "Builds your next steps — natural recovery suggestions, your spoken summary, your report.",
   },
 ];
