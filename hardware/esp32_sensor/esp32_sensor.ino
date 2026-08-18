@@ -37,6 +37,14 @@
  *   MQ gas  VCC->VIN(5V, USB power only)  GND->GND  (no signal pin wired)
  *   Status LED: the board's onboard LED (GPIO2) — no extra wiring. Lit
  *   whenever WiFi is connected, off otherwise.
+ *   Ready LED: external LED on GPIO13 -> LED anode; LED cathode -> a
+ *   220-330 ohm resistor -> GND. The resistor is required — an LED wired
+ *   directly to a GPIO with nothing else in series has no current limiting
+ *   and risks burning out either the LED or the pin. Lit once WiFi is
+ *   connected AND the AS7341 has initialized (device armed, ready to test);
+ *   stays lit through a whole test cycle and only goes dark once the strip
+ *   is physically pulled back out — relights automatically at the start of
+ *   the next test cycle.
  *
  * LIBRARIES NEEDED (Arduino Library Manager):
  *   - "DHT sensor library" by Adafruit (+ its dependency "Adafruit Unified Sensor")
@@ -82,6 +90,13 @@ const unsigned long PING_INTERVAL_MS = 3UL * 1000UL;
 // alive and online" indicator, visible without opening Serial Monitor.
 #define STATUS_LED_PIN 2
 
+// ---- Ready LED — external, needs a series resistor (see header comment) ----
+// Lit once the device is armed (WiFi connected + AS7341 initialized), and
+// stays lit through an entire test cycle so it doubles as "test in
+// progress." Goes dark once the strip is detected removed afterward (see
+// waitForStripRemoval()), relighting at the start of the next test cycle.
+#define READY_LED_PIN 13
+
 // ---- DHT11 ----
 #define DHTPIN 4
 #define DHTTYPE DHT11
@@ -102,6 +117,11 @@ const uint16_t LED_CURRENT_MA = 10;  // conservative onboard-LED brightness
 const int PH_CHANNEL_IDX = CLEAR_IDX;
 const int UREA_CHANNEL_IDX = CLEAR_IDX;
 const int CREATININE_CHANNEL_IDX = 5; // F6
+
+// Shared "is anything under the sensor" threshold — used both to detect a
+// pad landing (captureStablePad()) and, later, the strip being pulled back
+// out (waitForStripRemoval()).
+const uint16_t PRESENCE_MIN_CLEAR = 300;
 
 // Reference bands the dashboard expects (same ones the old dummy code used).
 const float PH_LO = 6.2f, PH_HI = 7.6f;
@@ -163,6 +183,7 @@ bool ensureAS7341Ready() {
   for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     if (as7341.begin()) {
       as7341Ready = true;
+      updateReadyLED();
       if (attempt > 1) {
         Serial.print("AS7341 initialized on retry attempt ");
         Serial.println(attempt);
@@ -187,9 +208,17 @@ void updateStatusLED() {
   digitalWrite(STATUS_LED_PIN, WiFi.status() == WL_CONNECTED ? HIGH : LOW);
 }
 
+// Keeps the ready LED in sync with "armed" state (WiFi connected AND the
+// AS7341 initialized). Call after anything that might change either half of
+// that condition — a WiFi connect/drop, or an as7341Ready transition.
+void updateReadyLED() {
+  digitalWrite(READY_LED_PIN, (WiFi.status() == WL_CONNECTED && as7341Ready) ? HIGH : LOW);
+}
+
 void connectWiFi() {
   if (WiFi.status() == WL_CONNECTED) {
     updateStatusLED();
+    updateReadyLED();
     return;
   }
   Serial.print("Connecting to WiFi");
@@ -202,6 +231,7 @@ void connectWiFi() {
     Serial.println("\nWiFi connect timed out, will retry in loop()");
   }
   updateStatusLED();
+  updateReadyLED();
 }
 
 // Reads all AS7341 channels once. Returns false (and leaves out[] untouched)
@@ -223,7 +253,6 @@ bool captureStablePad(const char *promptLabel, uint16_t outRaw[AS7341_CHANNEL_CO
   Serial.println(" pad sits under the sensor and hold it there...");
 
   const int WINDOW = 5;
-  const uint16_t PRESENCE_MIN_CLEAR = 300;  // "something is under the sensor"
   const uint16_t STABLE_MAX_SPREAD = 150;   // max-min allowed across the window to call it "settled"
 
   uint16_t history[WINDOW][AS7341_CHANNEL_COUNT];
@@ -273,6 +302,32 @@ bool captureStablePad(const char *promptLabel, uint16_t outRaw[AS7341_CHANNEL_CO
   return false;
 }
 
+// Called once a full pad sequence is done. The ready LED (see
+// updateReadyLED()) has been on since before this cycle started and stays
+// on through this wait — it only goes dark once the strip is physically
+// pulled back out, and stays dark until the next test cycle begins (see the
+// updateReadyLED() call at the top of runFullTest()). Bounded by a timeout
+// so a forgotten strip, or a sensor that's stopped responding, can't wedge
+// this wait forever instead of resuming normal operation.
+void waitForStripRemoval() {
+  if (!as7341Ready) return; // nothing to poll if the sensor isn't even up
+
+  Serial.println("Remove the strip when you're done...");
+  const unsigned long REMOVAL_TIMEOUT_MS = 30000;
+  unsigned long start = millis();
+
+  while (millis() - start < REMOVAL_TIMEOUT_MS) {
+    uint16_t reading[AS7341_CHANNEL_COUNT];
+    if (readAS7341Once(reading) && reading[CLEAR_IDX] <= PRESENCE_MIN_CLEAR) {
+      Serial.println("Strip removed.");
+      digitalWrite(READY_LED_PIN, LOW); // goes dark here; relit at the top of the next runFullTest()
+      return;
+    }
+    delay(50); // yield so WiFi/background tasks aren't starved
+  }
+  Serial.println("Strip removal not detected within timeout, continuing anyway.");
+}
+
 // Runs the full 3-pad sequence + DHT11 read. Always returns true — any
 // sensor/pad that fails or times out falls back to a dummy random value in
 // its reference range instead of blocking the send, so a reading always
@@ -280,6 +335,12 @@ bool captureStablePad(const char *promptLabel, uint16_t outRaw[AS7341_CHANNEL_CO
 // for a given cycle.
 bool runFullTest() {
   bool as7341Ok = ensureAS7341Ready();
+  // ensureAS7341Ready() only calls updateReadyLED() on a fresh init — once
+  // as7341Ready is already true it short-circuits without touching the LED,
+  // so this re-asserts "armed" explicitly at the start of every cycle. This
+  // is also what relights the LED after the previous cycle's
+  // waitForStripRemoval() turned it dark.
+  updateReadyLED();
   if (as7341Ok) {
     as7341.setLEDCurrent(LED_CURRENT_MA);
     as7341.enableLED(true);
@@ -314,6 +375,8 @@ bool runFullTest() {
 
   if (as7341Ok) as7341.enableLED(false);
 
+  waitForStripRemoval();
+
   // The sensor initialized fine this cycle but every single pad capture
   // still failed — that pattern means it most likely dropped off the bus
   // *after* init (a power blip, a jostled wire), not that a pad was simply
@@ -323,6 +386,7 @@ bool runFullTest() {
   if (as7341Ok && !phCaptured && !ureaCaptured && !creatinineCaptured) {
     Serial.println("AS7341 stopped responding after init — will re-initialize next cycle.");
     as7341Ready = false;
+    updateReadyLED();
   }
 
   float h = dht.readHumidity();       // read but not sent (no backend field yet)
@@ -417,6 +481,9 @@ void setup() {
   pinMode(STATUS_LED_PIN, OUTPUT);
   digitalWrite(STATUS_LED_PIN, LOW); // off until WiFi actually connects
 
+  pinMode(READY_LED_PIN, OUTPUT);
+  digitalWrite(READY_LED_PIN, LOW); // off until WiFi connects AND the AS7341 initializes
+
   Wire.begin(21, 22); // SDA, SCL — matches the wiring notes above
   dht.begin();
   // AS7341 init is lazy (see ensureAS7341Ready() below) — it happens on the
@@ -436,6 +503,7 @@ void setup() {
 void loop() {
   if (WiFi.status() != WL_CONNECTED) {
     updateStatusLED(); // catches a drop the instant it's noticed, not just after a reconnect attempt
+    updateReadyLED();
     connectWiFi();
   }
 
