@@ -29,7 +29,7 @@ from langchain_openai import ChatOpenAI
 
 from .. import config, db
 from ..security import normalize_phone
-from . import booking, clinic, reference_data, whatsapp_client
+from . import booking, clinic, content_llm, reference_data, report_pdf, whatsapp_client
 
 logger = logging.getLogger(__name__)
 
@@ -218,12 +218,53 @@ def _build_tools(user: Optional[dict[str, Any]], phone: str, lang: str) -> list:
         )
         return whatsapp_client.reschedule_message(existing, new_booking)
 
+    @tool
+    def send_report_pdf() -> str:
+        """Generate this patient's latest screening report as a PDF and send it
+        to them as a WhatsApp document attachment. Only call this when the
+        patient has clearly asked for their report as a PDF/document/file (e.g.
+        "send me the report", "can I get a PDF") — not for a general question
+        about their report, which get_patient_facts already answers in text.
+        Requires a registered account and at least one reading on file; says so
+        plainly if either is missing rather than pretending to send anything."""
+        if not user:
+            return (
+                "No account is linked to this phone number, so there's no report "
+                "to send. Tell the patient to sign up in the Novera app with this "
+                "phone number first."
+            )
+        row = reference_data.get_latest_row()
+        if not row:
+            return "This patient has no biomarker readings on file yet, so there's no report to generate."
+
+        reading = reference_data.row_to_reading(row)
+        ctx = reference_data.get_context()
+        # PDF is generated in English regardless of chat language — fpdf2's
+        # built-in fonts can't shape Arabic (see report_pdf.py docstring).
+        report_data = content_llm.report_agent(reading, ctx, lang="en")
+        pdf_bytes = report_pdf.build_report_pdf(reading, report_data)
+
+        result = whatsapp_client.send_document(
+            pdf_bytes,
+            filename="novera-screening-report.pdf",
+            caption="Your NOVERA screening report.",
+            to=phone,
+        )
+        logger.info(
+            "whatsapp_agent send_report_pdf: phone=%s user_id=%s delivered=%s",
+            phone, user["id"] if user else None, result.get("delivered"),
+        )
+        if result.get("delivered"):
+            return "The report PDF was sent successfully as a WhatsApp document attachment in this same conversation."
+        return f"Sending the report PDF failed ({result.get('reason', 'unknown error')}) — tell the patient to try again shortly or use the Reports page in the app instead."
+
     return [
         get_patient_facts,
         check_slot_availability,
         book_appointment,
         cancel_appointment,
         reschedule_appointment,
+        send_report_pdf,
     ]
 
 
@@ -254,7 +295,10 @@ def _system_prompt(user: Optional[dict[str, Any]], lang: str) -> str:
         "check_slot_availability (read-only). If they decline or say no to a booking, just "
         "acknowledge warmly and don't call any write tool. If they're asking about their report, "
         "biomarker values, doctor's notes, or their existing appointments, call get_patient_facts "
-        "first and answer ONLY from what it returns.\n\n"
+        "first and answer ONLY from what it returns. If they specifically ask for their report as a "
+        "PDF, document, or file (not just a question about it), call send_report_pdf instead — it "
+        "sends the actual file as a WhatsApp attachment in this conversation, so your reply should "
+        "just briefly confirm it's on the way rather than repeating the report's contents as text.\n\n"
         "Never invent a biomarker value, diagnosis, prediction, or appointment time that didn't "
         "come from a tool result. When a tool result is already a ready-made patient-facing "
         "message (from book_appointment, cancel_appointment, reschedule_appointment, or "
