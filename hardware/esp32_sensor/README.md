@@ -16,14 +16,52 @@ with its current SSID. That heartbeat does two things:
   takes and sends a reading immediately instead of waiting for the next
   `SEND_INTERVAL_MS` tick.
 
-## Current state: dummy mode
+## Current state: real temperature, estimated pH/urea/creatinine
 
-No sensors are wired up yet. `esp32_sensor.ino` sends plausible random
-values inside the dashboard's own reference bands — either every
-`SEND_INTERVAL_MS` (5 min) on its own, or immediately when the Dashboard
-requests a sample — purely so the whole pipeline — WiFi → HTTPS POST →
-Dashboard → AI report/voice/self-care — can be exercised end-to-end with a
-bare ESP32.
+- **Temperature**: real, from a DHT11 (`VCC→3V3, GND→GND, DATA→D4`).
+- **pH / urea / creatinine**: read from 3 colorimetric reagent pads on a
+  single test strip, using one AS7341 spectral color sensor
+  (`VIN→3V3, GND→GND, SCL→D22, SDA→D21`, I2C). Since there's only one
+  sensor, the strip is slid by hand through 3 marked positions — the
+  firmware watches the sensor and auto-captures each pad once its reading
+  stabilizes, no button needed. See the header comment in
+  `esp32_sensor.ino` for the exact stability-detection logic.
+- **MQ gas sensor**: wired for power only (`VCC→VIN`, `GND→GND`, no signal
+  pin connected) — its onboard LED just lights up when powered. Not read,
+  not sent anywhere.
+
+**Dummy fallback**: if the AS7341 isn't responding, a pad times out (no
+strip presented within 60s), or the DHT11 read fails, that specific value
+falls back to a random plausible number in its reference range instead of
+blocking the send — a reading always goes out every cycle, useful for
+testing the rest of the pipeline before all sensors/pads are ready. Serial
+prints which fields (if any) were dummy for a given cycle.
+
+**AS7341 init/recovery**: the sensor is initialized once (not re-initialized
+every cycle — see `ensureAS7341Ready()` in the sketch), with a few retries on
+first init for a transient glitch. If it later stops responding mid-cycle
+(all three pads fail to capture even though init succeeded), the firmware
+automatically marks it for re-initialization on the next cycle — no manual
+reset needed for that case. The one failure mode that still needs a person:
+if the chip's internal state gets corrupted by a genuine brownout (e.g. a
+marginal VIN supply sagging when the LED turns on), only a full physical
+power removal (disconnect VIN, not just the ESP32's reset button) clears
+it — software retries alone can't recover from that. Power VIN directly
+from the ESP32's own 3V3 pin, not a separate/external 3.3V source, to avoid
+that scenario entirely.
+
+**Not real calibration yet.** Converting a raw AS7341 color reading into an
+actual pH/mg-dL number needs a calibration curve built from testing
+known-concentration reference solutions against the pads. That hasn't been
+done — `mapRawToRange()` in the sketch currently just linearly stretches a
+raw value between two guessed endpoints onto the reference band, as a
+placeholder so the pipeline produces *some* number for demo purposes. Say
+so in any demo; replace `PH_RAW_MIN/MAX` etc. with real endpoints once
+trials against known references are run.
+
+Libraries needed (Arduino Library Manager, in addition to the ESP32 board
+package): **"DHT sensor library"** by Adafruit (+ its "Adafruit Unified
+Sensor" dependency), and **"Adafruit AS7341"**.
 
 ## Flashing it
 
@@ -36,28 +74,23 @@ bare ESP32.
 3. Open `esp32_sensor.ino`, fill in `WIFI_SSID_1` / `WIFI_PASSWORD_1` (and
    `_2`, `_3`, ... for any extra networks, e.g. a phone hotspot — it joins
    whichever is in range).
-4. Upload, then open the Serial Monitor at 115200 baud — you should see it
-   connect to WiFi and `POST /api/readings -> 201` within a few seconds. A
-   new reading appears on the Dashboard almost immediately. From then on,
-   clicking **Take New Sample** on the Dashboard triggers a fresh reading
-   within a few seconds (one `PING_INTERVAL_MS` cycle), and the exact values
-   sent are printed to Serial each time (`Reading -> {...}`).
+4. Upload, then open the Serial Monitor at 115200 baud — it connects to
+   WiFi, then prompts you over Serial to slide the strip through the pH,
+   Urea, and Creatinine pad positions in turn, then reads the DHT11 and
+   `POST`s to `/api/readings -> 201`. From then on, clicking **Take New
+   Sample** on the Dashboard triggers the same prompt sequence within a few
+   seconds (one `PING_INTERVAL_MS` cycle).
 
-## Switching to real sensors later
+## Building a real calibration curve
 
-Replace the body of `readPH()`, `readCreatinine()`, `readUrea()`,
-`readTemperature()` in the sketch with real sensor reads (`analogRead(pin)`,
-a sensor library call, etc.), returning the same units the dashboard
-expects:
-
-| Function | Unit | Reference band |
-|---|---|---|
-| `readPH()` | unitless | 6.2–7.6 |
-| `readCreatinine()` | mg/dL | 0.6–1.3 |
-| `readUrea()` | mg/dL | 7–20 |
-| `readTemperature()` | °C | 36.1–37.2 |
-
-Nothing else in the sketch, backend, or website needs to change.
+`PH_RAW_MIN/MAX`, `UREA_RAW_MIN/MAX`, `CREATININE_RAW_MIN/MAX` in the
+sketch are currently guessed placeholders. To make them real: prepare a
+handful of reference solutions at known concentrations (or known pH
+values), run each through the pad + AS7341, note the raw channel value
+`captureStablePad()` prints for that pad, and use the lowest/highest values
+you observe as the new endpoints — or better, fit a proper regression
+across several points instead of just two, if the color response isn't
+linear.
 
 ## Notes
 
