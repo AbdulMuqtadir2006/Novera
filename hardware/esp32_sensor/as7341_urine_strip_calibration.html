@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AS7341 Urine Strip Calibration</title>
+  <style>
+    :root { color-scheme: light dark; --ink:#16211d; --muted:#66736b; --line:#cfd8d2; --paper:#f7faf8; --accent:#16734f; }
+    * { box-sizing:border-box; } body { margin:0; background:var(--paper); color:var(--ink); font:15px/1.45 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    main { max-width:1120px; margin:auto; padding:28px 18px 46px; } h1 { margin:0 0 4px; font-size:1.7rem; } h2 { margin:0 0 12px; font-size:1.05rem; } p { margin:6px 0; } .muted { color:var(--muted); } .grid { display:grid; grid-template-columns:1.05fr .95fr; gap:18px; margin-top:20px; } .panel { background:Canvas; border:1px solid var(--line); border-radius:12px; padding:18px; }
+    .channels { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; } label { display:block; font-size:.82rem; font-weight:650; } input, select, button { font:inherit; } input,select { width:100%; margin-top:4px; padding:8px; color:inherit; background:Canvas; border:1px solid var(--line); border-radius:7px; } button { cursor:pointer; padding:9px 12px; border:0; border-radius:7px; color:white; background:var(--accent); font-weight:650; } button.secondary { background:#66736b; } button.danger { background:#a33838; }
+    .spectrum { display:flex; height:174px; gap:7px; align-items:end; border-bottom:1px solid var(--line); padding:8px 3px 0; } .bar { flex:1; min-width:16px; position:relative; background:linear-gradient(to top,#1f7db7,#5ddfc6); border-radius:5px 5px 0 0; min-height:2px; } .bar span { position:absolute; bottom:-24px; left:50%; transform:translateX(-50%); font-size:.73rem; white-space:nowrap; } .bar i { position:absolute; top:-21px; left:50%; transform:translateX(-50%); font-style:normal; font-size:.7rem; }
+    .swatch { height:76px; border-radius:10px; border:1px solid var(--line); margin:16px 0 7px; } .metrics { display:grid; grid-template-columns:repeat(3,1fr); gap:9px; } .metric { border:1px solid var(--line); border-radius:7px; padding:8px; } .metric b { display:block; font-size:1.05rem; } .sample-form { display:grid; grid-template-columns:1.15fr .7fr .7fr .75fr auto; gap:9px; align-items:end; margin-top:14px; } .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:15px; }
+    table { width:100%; border-collapse:collapse; margin-top:14px; font-size:.86rem; } th,td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); vertical-align:top; } th { color:var(--muted); } .result { margin-top:14px; padding:11px; border-left:4px solid var(--accent); background:color-mix(in srgb,var(--accent) 8%,Canvas); } .note { font-size:.82rem; color:var(--muted); margin-top:16px; }
+    @media (max-width:760px) { .grid { grid-template-columns:1fr; } .channels { grid-template-columns:repeat(3,1fr); } .sample-form { grid-template-columns:1fr 1fr; } .sample-form button { grid-column:span 2; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>AS7341 urine-strip calibration</h1>
+  <p class="muted">Enter raw readings after the strip reaction time specified by its manufacturer. The displayed colour is an indicative spectral preview—not a clinical colour reference.</p>
+  <div class="grid">
+    <section class="panel">
+      <h2>Live AS7341 readings</h2>
+      <div id="channels" class="channels"></div>
+      <div class="spectrum" id="spectrum" aria-label="Relative spectral response"></div>
+      <div class="actions"><button type="button" id="example">Load example</button><button type="button" class="secondary" id="zero">Set all to zero</button></div>
+    </section>
+    <section class="panel">
+      <h2>Relative colour and normalization</h2>
+      <div class="swatch" id="swatch" aria-label="Approximate colour"></div>
+      <div class="metrics"><div class="metric">Clear<b id="clearValue">0</b></div><div class="metric">NIR<b id="nirValue">0</b></div><div class="metric">Visible total<b id="visibleTotal">0</b></div></div>
+      <div class="result" id="match">Add calibration samples to enable a nearest-match estimate.</div>
+      <div class="sample-form">
+        <label>Reference label<input id="label" placeholder="e.g. ALB 30 mg/L / CRE 100 mg/dL"></label>
+        <label>Albumin<input id="albumin" placeholder="mg/L"></label>
+        <label>Creatinine<input id="creatinine" placeholder="mg/dL"></label>
+        <label>ACR category<select id="acr"><option>Normal (&lt;30 mg/g)</option><option>Abnormal (30–300 mg/g)</option><option>High abnormal (&gt;300 mg/g)</option></select></label>
+        <button type="button" id="capture">Save sample</button>
+      </div>
+      <p class="note">Create samples by measuring every printed bottle colour block under the same LED brightness, distance, enclosure, and read time. Keep Albumin and Creatinine pad readings as separate records if you measure each pad separately.</p>
+    </section>
+  </div>
+  <section class="panel" style="margin-top:18px">
+    <h2>Saved calibration samples</h2>
+    <div class="actions"><button type="button" id="export">Export CSV</button><label><input type="file" id="import" accept=".csv" style="display:none"><button type="button" class="secondary" id="importButton">Import CSV</button></label><button type="button" class="danger" id="clearSamples">Clear saved samples</button></div>
+    <table><thead><tr><th>Reference</th><th>Albumin</th><th>Creatinine</th><th>ACR category</th><th>Distance</th><th></th></tr></thead><tbody id="sampleRows"></tbody></table>
+  </section>
+</main>
+<script>
+(() => {
+  const bands = [
+    ['F1',415],['F2',445],['F3',480],['F4',515],['F5',555],['F6',590],['F7',630],['F8',680],['Clear','clear'],['NIR','nir']
+  ];
+  const spectral = bands.slice(0,8);
+  const key = 'as7341-urine-strip-calibration-v1';
+  const byId = id => document.getElementById(id);
+  const channelRoot = byId('channels');
+  bands.forEach(([name, wavelength]) => {
+    const label = document.createElement('label');
+    label.textContent = wavelength === 'clear' || wavelength === 'nir' ? name : `${name} · ${wavelength} nm`;
+    const input = document.createElement('input'); input.type='number'; input.min='0'; input.step='1'; input.value='0'; input.id=`v-${name}`; input.addEventListener('input', update); label.append(input); channelRoot.append(label);
+  });
+  const values = () => Object.fromEntries(bands.map(([name]) => [name, Math.max(0,Number(byId(`v-${name}`).value)||0)]));
+  const vector = () => { const v=values(), total=spectral.reduce((n,[name])=>n+v[name],0)||1; return spectral.map(([name])=>v[name]/total); };
+  const color = v => {
+    // Broad overlapping spectral weights: gives an indicative RGB preview only.
+    const f = n => v[`F${n}`];
+    const r = .04*f(1)+.05*f(2)+.08*f(3)+.16*f(4)+.32*f(5)+.58*f(6)+.86*f(7)+1*f(8);
+    const g = .05*f(1)+.12*f(2)+.34*f(3)+.72*f(4)+1*f(5)+.72*f(6)+.29*f(7)+.08*f(8);
+    const b = .82*f(1)+1*f(2)+.94*f(3)+.49*f(4)+.13*f(5)+.03*f(6)+.01*f(7);
+    const max=Math.max(r,g,b,1); return [r,g,b].map(x=>Math.round(255*Math.pow(x/max,.72)));
+  };
+  const getSamples = () => { try { return JSON.parse(localStorage.getItem(key)) || []; } catch { return []; } };
+  const setSamples = s => localStorage.setItem(key,JSON.stringify(s));
+  function update() {
+    const v=values(), total=spectral.reduce((n,[name])=>n+v[name],0), rgb=color(v);
+    byId('clearValue').textContent=v.Clear.toLocaleString(); byId('nirValue').textContent=v.NIR.toLocaleString(); byId('visibleTotal').textContent=total.toLocaleString();
+    byId('swatch').style.background=`rgb(${rgb.join(',')})`;
+    const max=Math.max(...spectral.map(([name])=>v[name]),1); const spec=byId('spectrum'); spec.replaceChildren();
+    spectral.forEach(([name,wl])=>{ const bar=document.createElement('div');bar.className='bar';bar.style.height=`${Math.max(2,v[name]/max*150)}px`;bar.innerHTML=`<i>${v[name]}</i><span>${wl}</span>`;spec.append(bar); });
+    renderMatch();
+  }
+  function distance(a,b) { return Math.sqrt(a.reduce((sum,x,i)=>sum+(x-b[i])**2,0)); }
+  function renderMatch() { const samples=getSamples(); if(!samples.length){byId('match').textContent='Add calibration samples to enable a nearest-match estimate.';return;} const current=vector(); const closest=samples.map(s=>({...s,d:distance(current,s.vector)})).sort((a,b)=>a.d-b.d)[0]; byId('match').innerHTML=`Closest reference: <b>${escapeHtml(closest.label)}</b><br>Albumin: ${escapeHtml(closest.albumin||'—')} · Creatinine: ${escapeHtml(closest.creatinine||'—')} · ${escapeHtml(closest.acr)}<br><small>Normalized spectral distance: ${closest.d.toFixed(4)} (lower is a closer match)</small>`; }
+  function escapeHtml(x) { return String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function renderSamples() { const samples=getSamples(), rows=byId('sampleRows'); rows.replaceChildren(); samples.forEach((s,i)=>{ const tr=document.createElement('tr'); tr.innerHTML=`<td>${escapeHtml(s.label)}</td><td>${escapeHtml(s.albumin||'—')}</td><td>${escapeHtml(s.creatinine||'—')}</td><td>${escapeHtml(s.acr)}</td><td>${s.vector ? s.vector.map(x=>x.toFixed(3)).join(', ') : '—'}</td><td><button type="button" class="danger" data-index="${i}">Delete</button></td>`;rows.append(tr); }); rows.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{const s=getSamples();s.splice(Number(b.dataset.index),1);setSamples(s);renderSamples();renderMatch();})); }
+  byId('capture').addEventListener('click',()=>{ const label=byId('label').value.trim(); if(!label){alert('Enter a reference label first.');return;} const s=getSamples(); s.push({label,albumin:byId('albumin').value.trim(),creatinine:byId('creatinine').value.trim(),acr:byId('acr').value,vector:vector()}); setSamples(s);renderSamples();renderMatch(); });
+  byId('example').addEventListener('click',()=>{[420,610,960,1310,1760,1520,840,350,7200,90].forEach((n,i)=>byId(`v-${bands[i][0]}`).value=n);update();});
+  byId('zero').addEventListener('click',()=>{bands.forEach(([name])=>byId(`v-${name}`).value=0);update();});
+  byId('clearSamples').addEventListener('click',()=>{if(confirm('Delete all saved calibration samples from this browser?')){setSamples([]);renderSamples();renderMatch();}});
+  byId('export').addEventListener('click',()=>{const header=['label','albumin_mg_L','creatinine_mg_dL','acr_category',...spectral.map(([n])=>n)];const lines=[header,...getSamples().map(s=>[s.label,s.albumin,s.creatinine,s.acr,...s.vector])].map(r=>r.map(x=>`"${String(x??'').replaceAll('"','""')}"`).join(','));const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([lines.join('\n')],{type:'text/csv'}));a.download='as7341-calibration.csv';a.click();URL.revokeObjectURL(a.href);});
+  byId('importButton').addEventListener('click',()=>byId('import').click()); byId('import').addEventListener('change',e=>{const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=()=>{try{const lines=String(reader.result).trim().split(/\r?\n/).slice(1);const parsed=lines.map(line=>{const x=[...line.matchAll(/(?:^|,)(?:"((?:[^"]|"")*)"|([^,]*))/g)].map(m=>(m[1]??m[2]).replaceAll('""','"'));return {label:x[0],albumin:x[1],creatinine:x[2],acr:x[3],vector:x.slice(4,12).map(Number)};}).filter(s=>s.label&&s.vector.length===8&&s.vector.every(Number.isFinite));setSamples(parsed);renderSamples();renderMatch();}catch{alert('Could not read that CSV. Export a file from this page first, then use it as the template.');}};reader.readAsText(file);e.target.value='';});
+  renderSamples(); update();
+})();
+</script>
+</body>
+</html>

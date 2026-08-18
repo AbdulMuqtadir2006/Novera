@@ -8,28 +8,39 @@
  * REAL SENSORS (as of this version):
  * - Temperature: DHT11, real reading (humidity is also read but not sent —
  *   the backend's reading shape has no humidity field yet).
- * - pH / Urea / Creatinine: AS7341 spectral color sensor reading 3
- *   colorimetric reagent pads on a single test strip, one at a time. Only
- *   one AS7341 exists, so the strip is slid BY HAND under the sensor
- *   through 3 marked positions — the firmware watches the sensor and
- *   auto-captures each pad once its reading stabilizes (no button needed).
+ * - pH / Urea / Creatinine: AS7341 spectral color sensor reading TWO
+ *   colorimetric reagent pads on a single test strip, one after another.
+ *   Top pad = Creatinine (Jaffe reaction: pinkish at normal levels,
+ *   shifting reddish as it rises). Bottom pad = Urea AND pH together, from
+ *   the SAME capture (yellowish-green at normal, shifting blueish-green as
+ *   urea rises). Only one AS7341 exists, so the strip is slid BY HAND to
+ *   the second pad position between the two capture windows.
  * - MQ gas sensor: wired for power only (no signal pin connected), purely
  *   so its onboard LED lights up. Not read, not sent anywhere.
  *
- * DUMMY FALLBACK: if the AS7341 isn't responding, a pad times out (no strip
- * presented), or the DHT11 read fails, that specific value falls back to a
- * plausible random number in its reference range instead of blocking the
- * send — a reading always goes out every cycle. Serial prints which fields
- * (if any) were dummy for that cycle, e.g. "pH: using dummy value."
+ * CALIBRATION HAPPENS ON THE BACKEND, NOT HERE: this firmware's only job is
+ * to capture the two pads' raw AS7341 channels (F1..F8, Clear, NIR) as
+ * accurately as it can and send both raw channel sets to
+ * POST /api/readings. Turning those raw colors into an actual pH/mg-dL
+ * number — converting to an RGB/hex color and matching it against a
+ * calibration chart — is backend/app/core/color_calibration.py's job.
+ * Keeping that math off the device matches how every other piece of
+ * NOVERA's decision logic already works (scoring.py, screening_llm.py):
+ * no math on the ESP32, easier to update calibration data without
+ * reflashing firmware. Nothing in color_calibration.py is real lab data
+ * yet either — see that file's own header comment.
  *
- * IMPORTANT — NOT REAL CALIBRATION YET: turning a raw color reading into an
- * actual mg/dL or pH number requires a calibration curve built from testing
- * known-concentration reference solutions against the pads. That hasn't
- * been done yet, so mapRawToRange() below just linearly stretches a raw
- * sensor value between two guessed endpoints onto the reference band. This
- * is a placeholder for demo purposes ONLY — the numbers it produces are not
- * scientifically valid until real calibration data replaces the guessed
- * RAW_MIN/RAW_MAX endpoints. Say so out loud in any demo.
+ * CAPTURE TIMING: a full color capture is two fixed 2.5-second windows
+ * (not stability-detected like earlier versions of this file) — the
+ * onboard reagent LED and the external "ready" LED (GPIO13) are both on
+ * throughout each window, off briefly between them as the signal to
+ * reposition the strip to the second pad. See runFullTest().
+ *
+ * DUMMY FALLBACK: if the AS7341 isn't responding at all, or neither
+ * capture window gets a single successful read, this cycle sends
+ * temperature only (no raw_channels fields) — the backend's existing
+ * jitter-based fallback fills in a plausible ph/urea/creatinine, same
+ * fallback path a totally sensorless reading has always used.
  *
  * WIRING (as connected):
  *   DHT11   VCC->3V3  GND->GND  DATA->D4 (+ pull-up resistor to 3V3)
@@ -37,14 +48,14 @@
  *   MQ gas  VCC->VIN(5V, USB power only)  GND->GND  (no signal pin wired)
  *   Status LED: the board's onboard LED (GPIO2) — no extra wiring. Lit
  *   whenever WiFi is connected, off otherwise.
- *   Ready LED: external LED on GPIO13 -> LED anode; LED cathode -> a
- *   220-330 ohm resistor -> GND. The resistor is required — an LED wired
- *   directly to a GPIO with nothing else in series has no current limiting
- *   and risks burning out either the LED or the pin. Lit once WiFi is
- *   connected AND the AS7341 has initialized (device armed, ready to test);
- *   stays lit through a whole test cycle and only goes dark once the strip
- *   is physically pulled back out — relights automatically at the start of
- *   the next test cycle.
+ *   Ready LED ("blue LED"): external LED on GPIO13 -> LED anode; LED
+ *   cathode -> a 220-330 ohm resistor -> GND. The resistor is required —
+ *   an LED wired directly to a GPIO with nothing else in series has no
+ *   current limiting and risks burning out either the LED or the pin.
+ *   Steady on whenever armed (WiFi connected + AS7341 initialized); during
+ *   a capture cycle it instead tracks the two capture windows (on with the
+ *   reagent LED for each 2.5s window, briefly off between them), then
+ *   returns to steady-on afterward.
  *
  * LIBRARIES NEEDED (Arduino Library Manager):
  *   - "DHT sensor library" by Adafruit (+ its dependency "Adafruit Unified Sensor")
@@ -91,10 +102,9 @@ const unsigned long PING_INTERVAL_MS = 3UL * 1000UL;
 #define STATUS_LED_PIN 2
 
 // ---- Ready LED — external, needs a series resistor (see header comment) ----
-// Lit once the device is armed (WiFi connected + AS7341 initialized), and
-// stays lit through an entire test cycle so it doubles as "test in
-// progress." Goes dark once the strip is detected removed afterward (see
-// waitForStripRemoval()), relighting at the start of the next test cycle.
+// Steady on whenever armed (WiFi connected + AS7341 initialized). During a
+// capture cycle, runFullTest() takes it over directly to track the two
+// capture windows instead — see there.
 #define READY_LED_PIN 13
 
 // ---- DHT11 ----
@@ -109,54 +119,39 @@ const int CLEAR_IDX = 8;             // index of the "Clear" channel — VERIFY,
 const int NIR_IDX = 9;               // index of the "NIR" channel
 const uint16_t LED_CURRENT_MA = 10;  // conservative onboard-LED brightness
 
-// Representative channel per pad — rough starting picks, not tuned yet:
-//  - pH / urea pads: dyes that shift across the visible spectrum -> use the
-//    Clear channel (overall reflected brightness) as a first approximation.
-//  - creatinine pad: Jaffe reaction turns orange/red -> F6 (~590nm, amber)
-//    channel index is 5 (F1=0 ... F6=5) — should track that color shift.
-const int PH_CHANNEL_IDX = CLEAR_IDX;
-const int UREA_CHANNEL_IDX = CLEAR_IDX;
-const int CREATININE_CHANNEL_IDX = 5; // F6
-
-// Shared "is anything under the sensor" threshold — used both to detect a
-// pad landing (captureStablePad()) and, later, the strip being pulled back
-// out (waitForStripRemoval()).
+// "Is anything under the sensor" threshold — informational only (see
+// captureAveragedWindow()). The backend's calibration-chart distance check
+// is the real "don't trust this reading" backstop, not this firmware.
 const uint16_t PRESENCE_MIN_CLEAR = 300;
 
-// Reference bands the dashboard expects (same ones the old dummy code used).
-const float PH_LO = 6.2f, PH_HI = 7.6f;
-const float CREATININE_LO = 0.6f, CREATININE_HI = 1.3f;
-const float UREA_LO = 7.0f, UREA_HI = 20.0f;
+// Each color capture is a FIXED window, not stability-detected — the user
+// repositions the strip during the brief gap between the two windows (see
+// runFullTest()). Samples are taken every CAPTURE_SAMPLE_GAP_MS and
+// averaged across the window to reduce noise (~25 samples per window at
+// these defaults).
+const unsigned long CAPTURE_WINDOW_MS = 2500;
+const unsigned long CAPTURE_SAMPLE_GAP_MS = 100;
+// Brief LED-off gap between the two capture windows — the visible signal
+// to reposition the strip to the second pad. Short on purpose: the two
+// 2.5s windows are the part that must add up to 5s per spec; this gap is
+// on top of that, not carved out of it.
+const unsigned long TRANSITION_GAP_MS = 600;
+
+// Fallback for the DHT11 only — color-derived values (pH/urea/creatinine)
+// have no on-device fallback anymore; see header comment ("DUMMY FALLBACK").
 const float TEMP_LO = 36.1f, TEMP_HI = 37.2f;
 
-// Fallback for whenever a real sensor isn't responding / a pad isn't
-// captured in time — returns a plausible random value in-range instead of
-// leaving that field blank, so a reading can always be sent. Printed to
-// Serial each time it's used so it's obvious in the log which fields (if
-// any) were real vs. dummy for that cycle.
 float randomFloat(float lo, float hi) {
   return lo + (hi - lo) * ((float)random(0, 10001) / 10000.0f);
 }
 
-// ---- PLACEHOLDER calibration endpoints (raw sensor counts) ----
-// No real calibration data exists yet (see header comment). These are
-// guessed so the pipeline produces *some* number in-range for a demo.
-// Replace with real endpoints once you've run trials against known
-// reference solutions: note the raw channel value at the lowest and
-// highest concentration you test, and put those numbers here instead.
-const uint16_t PH_RAW_MIN = 200,          PH_RAW_MAX = 20000;
-const uint16_t UREA_RAW_MIN = 200,        UREA_RAW_MAX = 20000;
-const uint16_t CREATININE_RAW_MIN = 200,  CREATININE_RAW_MAX = 20000;
-
-float mapRawToRange(uint16_t raw, uint16_t rawMin, uint16_t rawMax, float lo, float hi) {
-  if (raw <= rawMin) return lo;
-  if (raw >= rawMax) return hi;
-  float t = (float)(raw - rawMin) / (float)(rawMax - rawMin);
-  return lo + t * (hi - lo);
-}
-
-// Last captured values, sent in the next reading.
-float lastPH = 0, lastUrea = 0, lastCreatinine = 0, lastTemperature = 0;
+// Last captured raw channels for each pad, and whether both captures
+// succeeded this cycle. Sent as-is to the backend for color calibration —
+// see header comment.
+uint16_t lastTopRaw[AS7341_CHANNEL_COUNT];    // Creatinine pad
+uint16_t lastBottomRaw[AS7341_CHANNEL_COUNT]; // Urea/pH pad
+bool haveColorReading = false;
+float lastTemperature = 0;
 
 // Tracks whether the AS7341 is currently initialized. Adafruit's begin()
 // does a real I2C negotiation (bank select, chip-ID register read, etc.) and
@@ -197,7 +192,7 @@ bool ensureAS7341Ready() {
       delay(RETRY_DELAY_MS);
     }
   }
-  Serial.println("AS7341 not responding after retries — check wiring/power (SDA=D21, SCL=D22, VIN=3V3). Using dummy pH/urea/creatinine for this cycle.");
+  Serial.println("AS7341 not responding after retries — check wiring/power (SDA=D21, SCL=D22, VIN=3V3). Skipping color capture this cycle.");
   return false;
 }
 
@@ -211,6 +206,9 @@ void updateStatusLED() {
 // Keeps the ready LED in sync with "armed" state (WiFi connected AND the
 // AS7341 initialized). Call after anything that might change either half of
 // that condition — a WiFi connect/drop, or an as7341Ready transition.
+// During a capture cycle, runFullTest() drives the LED directly instead
+// (to track the two capture windows) and calls this again afterward to
+// restore steady-on.
 void updateReadyLED() {
   digitalWrite(READY_LED_PIN, (WiFi.status() == WL_CONNECTED && as7341Ready) ? HIGH : LOW);
 }
@@ -241,27 +239,22 @@ bool readAS7341Once(uint16_t out[AS7341_CHANNEL_COUNT]) {
   return as7341.readAllChannels(out);
 }
 
-// Slides through one pad position: polls the sensor until a run of readings
-// on the representative channel stops changing much (the strip has stopped
-// moving and a pad is sitting under the sensor) AND the Clear channel shows
-// something is actually there (not just "sensor pointed at empty air").
-// Returns true and fills outRaw with the stable channel array, or false on
-// timeout (no strip presented in time — caller should skip this cycle).
-bool captureStablePad(const char *promptLabel, uint16_t outRaw[AS7341_CHANNEL_COUNT], unsigned long timeoutMs) {
-  Serial.print("Slide the strip so the ");
-  Serial.print(promptLabel);
-  Serial.println(" pad sits under the sensor and hold it there...");
-
-  const int WINDOW = 5;
-  const uint16_t STABLE_MAX_SPREAD = 150;   // max-min allowed across the window to call it "settled"
-
-  uint16_t history[WINDOW][AS7341_CHANNEL_COUNT];
-  int filled = 0;
+// Averages AS7341 readings across a FIXED window — not stability-detected
+// like earlier versions of this file, since the physical pad position is
+// fixed by the user for the duration of this window, not searched for.
+// Returns false only if the AS7341 never responded to a single sample the
+// whole window; a low average Clear value (below PRESENCE_MIN_CLEAR) just
+// prints a warning and still returns the average — the backend's
+// calibration-chart distance check is the authoritative "don't trust this"
+// backstop, not this firmware.
+bool captureAveragedWindow(const char *label, uint16_t outRaw[AS7341_CHANNEL_COUNT], unsigned long windowMs) {
+  uint32_t sums[AS7341_CHANNEL_COUNT] = {0};
+  int samples = 0;
   unsigned long start = millis();
   unsigned long lastSample = 0;
 
-  while (millis() - start < timeoutMs) {
-    if (millis() - lastSample < 150) {
+  while (millis() - start < windowMs) {
+    if (millis() - lastSample < CAPTURE_SAMPLE_GAP_MS) {
       delay(10); // yield so WiFi/system background tasks run — a tight busy-wait
                  // loop here can starve them and trigger the ESP32 watchdog reset
       continue;
@@ -269,121 +262,82 @@ bool captureStablePad(const char *promptLabel, uint16_t outRaw[AS7341_CHANNEL_CO
     lastSample = millis();
 
     uint16_t reading[AS7341_CHANNEL_COUNT];
-    if (!readAS7341Once(reading)) {
-      delay(10);
-      continue; // sensor hiccup, try again next tick
-    }
+    if (!readAS7341Once(reading)) continue; // sensor hiccup, try again next tick
 
-    for (int i = 0; i < WINDOW - 1; i++) {
-      memcpy(history[i], history[i + 1], sizeof(history[i]));
-    }
-    memcpy(history[WINDOW - 1], reading, sizeof(reading));
-    if (filled < WINDOW) filled++;
-
-    if (filled == WINDOW) {
-      uint16_t mn = 65535, mx = 0;
-      for (int i = 0; i < WINDOW; i++) {
-        uint16_t v = history[i][CLEAR_IDX];
-        if (v < mn) mn = v;
-        if (v > mx) mx = v;
-      }
-      bool present = mx > PRESENCE_MIN_CLEAR;
-      bool stable = (mx - mn) < STABLE_MAX_SPREAD;
-      if (present && stable) {
-        memcpy(outRaw, history[WINDOW - 1], sizeof(reading));
-        Serial.print(promptLabel);
-        Serial.println(" pad captured.");
-        return true;
-      }
-    }
+    for (int i = 0; i < AS7341_CHANNEL_COUNT; i++) sums[i] += reading[i];
+    samples++;
   }
-  Serial.print(promptLabel);
-  Serial.println(" pad timed out — no strip detected in time.");
-  return false;
+
+  if (samples == 0) {
+    Serial.print(label);
+    Serial.println(": AS7341 never responded during this window.");
+    return false;
+  }
+
+  for (int i = 0; i < AS7341_CHANNEL_COUNT; i++) outRaw[i] = sums[i] / samples;
+
+  if (outRaw[CLEAR_IDX] < PRESENCE_MIN_CLEAR) {
+    Serial.print(label);
+    Serial.println(": low signal — was the strip actually under the sensor?");
+  }
+  Serial.print(label);
+  Serial.print(" captured (");
+  Serial.print(samples);
+  Serial.println(" samples averaged).");
+  return true;
 }
 
-// Called once a full pad sequence is done. The ready LED (see
-// updateReadyLED()) has been on since before this cycle started and stays
-// on through this wait — it only goes dark once the strip is physically
-// pulled back out, and stays dark until the next test cycle begins (see the
-// updateReadyLED() call at the top of runFullTest()). Bounded by a timeout
-// so a forgotten strip, or a sensor that's stopped responding, can't wedge
-// this wait forever instead of resuming normal operation.
-void waitForStripRemoval() {
-  if (!as7341Ready) return; // nothing to poll if the sensor isn't even up
-
-  Serial.println("Remove the strip when you're done...");
-  const unsigned long REMOVAL_TIMEOUT_MS = 30000;
-  unsigned long start = millis();
-
-  while (millis() - start < REMOVAL_TIMEOUT_MS) {
-    uint16_t reading[AS7341_CHANNEL_COUNT];
-    if (readAS7341Once(reading) && reading[CLEAR_IDX] <= PRESENCE_MIN_CLEAR) {
-      Serial.println("Strip removed.");
-      digitalWrite(READY_LED_PIN, LOW); // goes dark here; relit at the top of the next runFullTest()
-      return;
-    }
-    delay(50); // yield so WiFi/background tasks aren't starved
-  }
-  Serial.println("Strip removal not detected within timeout, continuing anyway.");
-}
-
-// Runs the full 3-pad sequence + DHT11 read. Always returns true — any
-// sensor/pad that fails or times out falls back to a dummy random value in
-// its reference range instead of blocking the send, so a reading always
-// goes out. Check Serial output to see which fields (if any) were dummy
-// for a given cycle.
+// Runs the two-pad color capture (Creatinine top, Urea/pH bottom) + DHT11
+// read. Always returns true — a totally failed color capture just means
+// this cycle's send omits the raw_channels fields (backend fallback takes
+// over, see header comment); it never blocks the send outright.
 bool runFullTest() {
   bool as7341Ok = ensureAS7341Ready();
   // ensureAS7341Ready() only calls updateReadyLED() on a fresh init — once
   // as7341Ready is already true it short-circuits without touching the LED,
-  // so this re-asserts "armed" explicitly at the start of every cycle. This
-  // is also what relights the LED after the previous cycle's
-  // waitForStripRemoval() turned it dark.
+  // so this re-asserts "armed" explicitly at the start of every cycle.
   updateReadyLED();
+
+  bool topOk = false, bottomOk = false;
+
   if (as7341Ok) {
     as7341.setLEDCurrent(LED_CURRENT_MA);
+
+    // --- Window 1: Creatinine (top pad) ---
     as7341.enableLED(true);
-  }
+    digitalWrite(READY_LED_PIN, HIGH);
+    Serial.println("Position the CREATININE (top) pad under the sensor now...");
+    topOk = captureAveragedWindow("Creatinine (top)", lastTopRaw, CAPTURE_WINDOW_MS);
 
-  uint16_t phRaw[AS7341_CHANNEL_COUNT];
-  bool phCaptured = as7341Ok && captureStablePad("pH", phRaw, 60000);
-  if (phCaptured) {
-    lastPH = mapRawToRange(phRaw[PH_CHANNEL_IDX], PH_RAW_MIN, PH_RAW_MAX, PH_LO, PH_HI);
+    // --- Brief gap: signal to reposition the strip ---
+    as7341.enableLED(false);
+    digitalWrite(READY_LED_PIN, LOW);
+    Serial.println("Reposition the strip to the UREA/pH (bottom) pad now...");
+    delay(TRANSITION_GAP_MS);
+
+    // --- Window 2: Urea + pH (bottom pad, same capture for both) ---
+    as7341.enableLED(true);
+    digitalWrite(READY_LED_PIN, HIGH);
+    bottomOk = captureAveragedWindow("Urea/pH (bottom)", lastBottomRaw, CAPTURE_WINDOW_MS);
+
+    as7341.enableLED(false);
+    updateReadyLED(); // back to steady "armed" rather than fully off
   } else {
-    Serial.println("pH: using dummy value.");
-    lastPH = randomFloat(PH_LO, PH_HI);
+    Serial.println("AS7341 not ready — skipping color capture this cycle, sending temperature only.");
   }
 
-  uint16_t ureaRaw[AS7341_CHANNEL_COUNT];
-  bool ureaCaptured = as7341Ok && captureStablePad("Urea", ureaRaw, 60000);
-  if (ureaCaptured) {
-    lastUrea = mapRawToRange(ureaRaw[UREA_CHANNEL_IDX], UREA_RAW_MIN, UREA_RAW_MAX, UREA_LO, UREA_HI);
-  } else {
-    Serial.println("Urea: using dummy value.");
-    lastUrea = randomFloat(UREA_LO, UREA_HI);
+  haveColorReading = topOk && bottomOk;
+  if (as7341Ok && !haveColorReading) {
+    Serial.println("One or both pad captures failed — sending without raw color channels this cycle.");
   }
 
-  uint16_t creatinineRaw[AS7341_CHANNEL_COUNT];
-  bool creatinineCaptured = as7341Ok && captureStablePad("Creatinine", creatinineRaw, 60000);
-  if (creatinineCaptured) {
-    lastCreatinine = mapRawToRange(creatinineRaw[CREATININE_CHANNEL_IDX], CREATININE_RAW_MIN, CREATININE_RAW_MAX, CREATININE_LO, CREATININE_HI);
-  } else {
-    Serial.println("Creatinine: using dummy value.");
-    lastCreatinine = randomFloat(CREATININE_LO, CREATININE_HI);
-  }
-
-  if (as7341Ok) as7341.enableLED(false);
-
-  waitForStripRemoval();
-
-  // The sensor initialized fine this cycle but every single pad capture
-  // still failed — that pattern means it most likely dropped off the bus
-  // *after* init (a power blip, a jostled wire), not that a pad was simply
-  // never presented in time. Clear the ready flag so the next cycle
-  // re-runs ensureAS7341Ready() instead of trusting a connection that
-  // isn't actually there anymore — this is the automatic-recovery path.
-  if (as7341Ok && !phCaptured && !ureaCaptured && !creatinineCaptured) {
+  // The sensor initialized fine this cycle but neither window got a single
+  // sample — that pattern means it most likely dropped off the bus *after*
+  // init (a power blip, a jostled wire), not that a pad was simply
+  // presented wrong. Clear the ready flag so the next cycle re-runs
+  // ensureAS7341Ready() instead of trusting a connection that isn't
+  // actually there anymore — this is the automatic-recovery path.
+  if (as7341Ok && !topOk && !bottomOk) {
     Serial.println("AS7341 stopped responding after init — will re-initialize next cycle.");
     as7341Ready = false;
     updateReadyLED();
@@ -406,6 +360,21 @@ bool runFullTest() {
   return true;
 }
 
+// Appends a raw-channels JSON object (e.g. {"F1":420,...,"NIR":200}) onto
+// the end of buf, using strlen(buf) as the write offset each time so
+// sequential calls compose cleanly without separately tracked length
+// bookkeeping. buf must already be null-terminated (snprintf guarantees
+// this at every step).
+void appendRawChannelsJson(char *buf, size_t bufSize, const uint16_t raw[AS7341_CHANNEL_COUNT]) {
+  const char *keys[AS7341_CHANNEL_COUNT] = {"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "CLEAR", "NIR"};
+  size_t len = strlen(buf);
+  len += snprintf(buf + len, bufSize - len, "{");
+  for (int i = 0; i < AS7341_CHANNEL_COUNT; i++) {
+    len += snprintf(buf + len, bufSize - len, "\"%s\":%u%s", keys[i], raw[i], i < AS7341_CHANNEL_COUNT - 1 ? "," : "");
+  }
+  snprintf(buf + len, bufSize - len, "}");
+}
+
 void sendReading() {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi not connected, skipping this send");
@@ -417,10 +386,18 @@ void sendReading() {
     return;
   }
 
-  char body[160];
-  snprintf(body, sizeof(body),
-           "{\"ph\":%.2f,\"creatinine\":%.2f,\"urea\":%.1f,\"temperature\":%.1f}",
-           lastPH, lastCreatinine, lastUrea, lastTemperature);
+  char body[900];
+  snprintf(body, sizeof(body), "{\"temperature\":%.1f", lastTemperature);
+  if (haveColorReading) {
+    size_t len = strlen(body);
+    snprintf(body + len, sizeof(body) - len, ",\"top_raw_channels\":");
+    appendRawChannelsJson(body, sizeof(body), lastTopRaw);
+    len = strlen(body);
+    snprintf(body + len, sizeof(body) - len, ",\"bottom_raw_channels\":");
+    appendRawChannelsJson(body, sizeof(body), lastBottomRaw);
+  }
+  size_t len = strlen(body);
+  snprintf(body + len, sizeof(body) - len, "}");
 
   Serial.print("Reading -> ");
   Serial.println(body);

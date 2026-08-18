@@ -26,6 +26,12 @@ class ReadingIn(BaseModel):
     creatinine: Optional[float] = None
     urea: Optional[float] = None
     temperature: Optional[float] = None
+    # Raw AS7341 channels for the two color pads (top=Creatinine,
+    # bottom=Urea+pH — see app/core/color_calibration.py). When both are
+    # present, the backend derives ph/creatinine/urea from them via color
+    # calibration instead of trusting the fields above directly.
+    top_raw_channels: Optional[dict[str, float]] = None
+    bottom_raw_channels: Optional[dict[str, float]] = None
 
 
 # ---- ESP32 sensor node ----
