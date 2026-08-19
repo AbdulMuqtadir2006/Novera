@@ -90,5 +90,17 @@ AUTO_AGENT_ENABLED = os.getenv("AUTO_AGENT_ENABLED", "true").strip().lower() != 
 # once real calibrated sensors replace the placeholder charts.
 SENSOR_STABILIZATION_ENABLED = os.getenv("SENSOR_STABILIZATION_ENABLED", "true").strip().lower() != "false"
 
+# ---- screening flag suppression (temporary, until Hassan says otherwise) ----
+# Sensors/calibration aren't trustworthy enough yet to be telling real people
+# to get tested or see a doctor (2026-08-20 call). While this is on,
+# scoring.ScoringEngine.evaluate() forces every organ's flag to "low" —
+# combined_score/range_score/similarity_score are still computed and stored
+# for real in decision_audit, only the flag that automation acts on is
+# suppressed. This is what mutes whatsapp_gating.enforce_outreach_guarantee's
+# forced appointment offer (medium/high only) and any other flag-gated
+# messaging. Default ON — set SUPPRESS_SCREENING_FLAGS=false once the
+# underlying scoring is trustworthy enough to actually flag people again.
+SUPPRESS_SCREENING_FLAGS = os.getenv("SUPPRESS_SCREENING_FLAGS", "true").strip().lower() != "false"
+
 # ---- misc ----
 SERVICE_PORT = int(os.getenv("PORT", "8000"))

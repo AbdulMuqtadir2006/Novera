@@ -181,6 +181,14 @@ class ScoringEngine:
             0.55 * range_score + 0.45 * similarity_score if candidate_count > 0 else range_score
         )
         flag = "high" if combined_score >= 0.80 else "medium" if combined_score >= 0.60 else "low"
+        if config.SUPPRESS_SCREENING_FLAGS:
+            # Temporary override (2026-08-20, Hassan's call) — sensors/
+            # calibration aren't trustworthy enough yet to be telling real
+            # people to get tested or see a doctor. combined_score itself
+            # stays real (still stored in decision_audit for later
+            # analysis); only the flag that whatsapp_gating and other
+            # automation act on is forced down. See config.py.
+            flag = "low"
 
         return {
             "organ": organ,
