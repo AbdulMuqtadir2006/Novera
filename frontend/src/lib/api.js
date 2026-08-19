@@ -20,7 +20,12 @@ async function req(path, options = {}) {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `Request failed: ${res.status}`);
+    const err = new Error(body.error || body.detail || `Request failed: ${res.status}`);
+    // Multi-tenant (2026-08-19): callers now need to distinguish "no data
+    // yet for this account" (404, a real empty state) from a genuine
+    // failure — nothing previously exposed the actual HTTP status.
+    err.status = res.status;
+    throw err;
   }
   return res.json();
 }

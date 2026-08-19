@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Download, Check, CircleAlert, Loader2, RefreshCw, Sparkles } from "lucide-react";
+import { Download, Check, CircleAlert, Loader2, RefreshCw, Sparkles, Droplet } from "lucide-react";
 import { PageShell } from "../components/layout/PageShell";
 import { useLatestReading } from "../hooks/useLatestReading";
 import { getReport } from "../lib/api";
@@ -106,13 +106,20 @@ export default function Reports() {
   const { t, lang } = useLang();
   const { reading, loading: readingLoading } = useLatestReading();
   const [report, setReport] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Multi-tenant (2026-08-19): a brand-new account can genuinely have zero
+  // readings — this used to be impossible, so nothing here distinguished
+  // "still fetching" from "loaded, and there's really nothing yet." Starts
+  // false (not true) specifically so a no-reading account doesn't show the
+  // "thinking" animation forever waiting on a report fetch that will never
+  // even be attempted — see the effect below, gated on `reading`.
+  const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const docRef = useRef(null);
 
   const loadReport = () => {
+    if (!reading) return;
     setLoading(true);
     setError(false);
     getReport(lang)
@@ -124,7 +131,7 @@ export default function Reports() {
   useEffect(() => {
     loadReport();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lang]);
+  }, [lang, reading]);
 
   const handleDownload = async () => {
     if (!docRef.current) return;
@@ -143,13 +150,25 @@ export default function Reports() {
     }
   };
 
+  const isEmpty = !readingLoading && !loading && !reading;
   const busy = readingLoading || loading || !reading || !report;
+  const disableActions = busy || isEmpty;
 
   return (
     <PageShell eyebrow={t("reports.eyebrow")} title={t("reports.title")} intro={t("reports.intro")}>
       <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr] lg:items-start">
         <div>
-          {busy ? (
+          {isEmpty ? (
+            <div className="light-card flex flex-col items-center gap-4 px-6 py-16 text-center">
+              <span className="flex h-14 w-14 items-center justify-center rounded-full bg-signal/10 text-signal">
+                <Droplet size={26} strokeWidth={1.8} />
+              </span>
+              <div>
+                <h2 className="font-display text-xl font-bold text-depth">{t("dash.emptyTitle")}</h2>
+                <p className="mt-2 max-w-sm text-sm text-depth/60">{t("dash.emptyBody")}</p>
+              </div>
+            </div>
+          ) : busy ? (
             <div className="light-card flex h-96 items-center justify-center">
               <AgentThinking />
             </div>
@@ -168,11 +187,11 @@ export default function Reports() {
             )}
           </div>
 
-          <button type="button" onClick={handleDownload} disabled={busy || downloading} className="btn-primary mt-5 w-full disabled:opacity-60">
+          <button type="button" onClick={handleDownload} disabled={disableActions || downloading} className="btn-primary mt-5 w-full disabled:opacity-60">
             {downloading ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
             {t("reports.download")}
           </button>
-          <button type="button" onClick={loadReport} disabled={busy} className="btn-ghost mt-3 w-full !text-depth !border-depth/15 disabled:opacity-60">
+          <button type="button" onClick={loadReport} disabled={disableActions} className="btn-ghost mt-3 w-full !text-depth !border-depth/15 disabled:opacity-60">
             <RefreshCw size={16} /> {t("reports.regenerate")}
           </button>
 

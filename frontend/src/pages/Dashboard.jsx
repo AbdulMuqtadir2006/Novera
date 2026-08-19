@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Plus, Loader2 } from "lucide-react";
+import { Plus, Loader2, Droplet } from "lucide-react";
 import { PageShell } from "../components/layout/PageShell";
 import { ReadingCard } from "../components/dashboard/ReadingCard";
 import { TrendChart } from "../components/dashboard/TrendChart";
@@ -76,6 +76,29 @@ function SkeletonGrid() {
           <div className="mt-6 h-10 w-full rounded bg-depth/5" />
         </div>
       ))}
+    </div>
+  );
+}
+
+// Multi-tenant (2026-08-19): a brand-new account genuinely has zero readings
+// — this used to be impossible (one shared global reading always existed),
+// so nothing distinguished "still fetching" from "loaded, and there's really
+// nothing yet," and the dashboard showed SkeletonGrid forever. Real empty
+// state instead, with the same handleAdd flow the header button already uses.
+function EmptyState({ onAdd, adding, t }) {
+  return (
+    <div className="light-card flex flex-col items-center gap-4 px-6 py-16 text-center">
+      <span className="flex h-14 w-14 items-center justify-center rounded-full bg-signal/10 text-signal">
+        <Droplet size={26} strokeWidth={1.8} />
+      </span>
+      <div>
+        <h2 className="font-display text-xl font-bold text-depth">{t("dash.emptyTitle")}</h2>
+        <p className="mt-2 max-w-sm text-sm text-depth/60">{t("dash.emptyBody")}</p>
+      </div>
+      <button type="button" onClick={onAdd} disabled={adding} className="btn-primary disabled:opacity-60">
+        {adding ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
+        {adding ? t("dash.adding") : t("dash.addReading")}
+      </button>
     </div>
   );
 }
@@ -201,8 +224,10 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {loading || !reading ? (
+      {loading ? (
         <SkeletonGrid />
+      ) : !reading ? (
+        <EmptyState onAdd={handleAdd} adding={adding} t={t} />
       ) : (
         <>
           <div className="mb-6">

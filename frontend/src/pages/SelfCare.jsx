@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Send, Loader2, RefreshCw, Stethoscope, UtensilsCrossed, Trash2 } from "lucide-react";
+import { Sparkles, Send, Loader2, RefreshCw, Stethoscope, UtensilsCrossed, Trash2, Droplet } from "lucide-react";
 import { PageShell } from "../components/layout/PageShell";
 import { getSelfCare, getChat, sendChat, resetChat } from "../lib/api";
 import { healthAreaById } from "../data/healthAreas";
@@ -154,12 +154,21 @@ export default function SelfCare() {
   const { t, lang } = useLang();
   const [plan, setPlan] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Multi-tenant (2026-08-19): a brand-new account genuinely has zero
+  // readings — getSelfCare correctly 404s ("no readings"), which used to be
+  // impossible, so nothing distinguished that from a real failure. Without a
+  // reading, a plan genuinely cannot be generated (not a retriable error).
+  const [noReading, setNoReading] = useState(false);
 
   const loadPlan = () => {
     setLoading(true);
+    setNoReading(false);
     getSelfCare(lang, { force: false })
       .then(setPlan)
-      .catch(() => setPlan(null))
+      .catch((e) => {
+        setPlan(null);
+        if (e?.status === 404) setNoReading(true);
+      })
       .finally(() => setLoading(false));
   };
 
@@ -181,7 +190,17 @@ export default function SelfCare() {
       <div className="grid gap-6 lg:grid-cols-[1.3fr_1fr] lg:items-start">
         {/* Plan column */}
         <div className="space-y-6">
-          {loading || !plan ? (
+          {noReading ? (
+            <div className="light-card flex flex-col items-center gap-4 px-6 py-16 text-center">
+              <span className="flex h-14 w-14 items-center justify-center rounded-full bg-signal/10 text-signal">
+                <Droplet size={26} strokeWidth={1.8} />
+              </span>
+              <div>
+                <h2 className="font-display text-xl font-bold text-depth">{t("dash.emptyTitle")}</h2>
+                <p className="mt-2 max-w-sm text-sm text-depth/60">{t("dash.emptyBody")}</p>
+              </div>
+            </div>
+          ) : loading || !plan ? (
             <div className="light-card flex h-72 items-center justify-center">
               <AgentThinking />
             </div>

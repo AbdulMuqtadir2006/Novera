@@ -15,7 +15,13 @@
     />
     <meta name="theme-color" content="#080919" />
     <!-- iOS "Add to Home Screen": Safari ignores most of the web manifest,
-         these meta tags are what actually drive standalone/full-screen mode. -->
+         these meta tags are what actually drive standalone/full-screen mode.
+         apple-mobile-web-app-capable is Apple's older, iOS-specific name —
+         kept because Safari still only honors that one, not the standard
+         name below. mobile-web-app-capable is the now-standardized name
+         Chrome/Android (and Chrome DevTools' deprecation warning) expect —
+         both are needed side by side, this isn't a replacement. -->
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Novera" />
