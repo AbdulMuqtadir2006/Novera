@@ -99,10 +99,19 @@ def _wa_run_end(label: str) -> None:
 
 
 def _find_user_by_phone(phone: str) -> Optional[dict[str, Any]]:
-    return db.fetch_one(
+    normalized = normalize_phone(phone)
+    row = db.fetch_one(
         "SELECT id, email, name, phone FROM users WHERE phone = %s",
-        (normalize_phone(phone),),
+        (normalized,),
     )
+    # Temporary diagnostic (2026-08-19) — the WhatsApp -> dashboard link
+    # depends entirely on this exact string match, and it's the one part of
+    # the whole pipeline with no other way to verify short of DB access.
+    # Railway's own private deploy logs only (not the public /ws/pipeline
+    # broadcast), so logging the normalized number here is fine.
+    logger.info("whatsapp_agent: phone lookup normalized=%s matched_user_id=%s",
+                normalized, row["id"] if row else None)
+    return row
 
 
 def _gather_patient_facts(user: Optional[dict[str, Any]]) -> dict[str, Any]:
