@@ -6,6 +6,7 @@ LangGraph service into one FastAPI app on Postgres.
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,6 +18,15 @@ from . import config, ws
 from .core import scheduler, scoring
 from .rate_limit import limiter
 from .routers import appointments, auth, content_agents, device, health, patient_context, readings, screening, whatsapp
+
+# Without this, every logger.info()/logger.warning() call in this codebase
+# (whatsapp_agent.py, guidance_agent.py, scheduler.py, etc. — extensive,
+# added across today's builds) was silently discarded: Python's logging
+# module has no output configured anywhere by default except a "last
+# resort" stderr handler that only catches WARNING and above. Found while
+# trying to diagnose a live "reading didn't show up" report and being
+# unable to see any of the WhatsApp Agent's own trigger/tool logging at all.
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
 
 app = FastAPI(title="NOVERA API", version="1.0.0")
 
