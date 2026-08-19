@@ -94,7 +94,13 @@ const char *PING_URL = "https://api.echo-nova.online/api/device/ping";
 // dashboard (assumes a strip is available to insert when it fires).
 const unsigned long SEND_INTERVAL_MS = 5UL * 60UL * 1000UL;
 // How often to heartbeat the backend / check for a dashboard-requested sample.
-const unsigned long PING_INTERVAL_MS = 3UL * 1000UL;
+// Tightened from 3s (2026-08-20): the "get ready" blink cue is supposed to
+// land ~1s after the patient receives the WhatsApp/dashboard message telling
+// them to test now, but the device can only learn about a request by polling
+// (see this file's header) — so the real-world gap is [this interval,
+// this interval + REQUEST_CUE_DELAY_MS]. At 3s that could be up to 4s late;
+// at 1s it's bounded much closer to the intended ~1s.
+const unsigned long PING_INTERVAL_MS = 1UL * 1000UL;
 
 // ---- Status LED — onboard LED, no extra wiring needed ----
 // Lights up whenever WiFi is connected, off otherwise: a simple "device is

@@ -233,8 +233,8 @@ def _build_tools(user: Optional[dict[str, Any]], phone: str, lang: str, within_w
         if not user:
             return (
                 "No account is linked to this phone number, so no patient facts are "
-                "available. Tell the patient to sign up in the Novera app with this "
-                "phone number first."
+                "available. Tell the patient to sign up with this same phone number, and "
+                f"give them this exact link to do it: {config.SIGNUP_URL}"
             )
         if "facts" not in facts_cache:
             facts_cache["facts"] = _gather_patient_facts(user)
@@ -495,7 +495,9 @@ def _system_prompt(user: Optional[dict[str, Any]], lang: str, trigger: str) -> s
         "This phone number is linked to a registered patient account."
         if user else
         "This phone number is NOT linked to any registered patient account, so there are no "
-        "personal facts to retrieve for it — get_patient_facts will say so if called."
+        "personal facts to retrieve for it — get_patient_facts will say so if called. Your reply "
+        f"MUST include this exact signup link so they can register with this same phone number: "
+        f"{config.SIGNUP_URL}"
     )
     if trigger == "whatsapp.inbound":
         wake_reason = "A patient just sent you a WhatsApp message — see the message below."
