@@ -94,17 +94,38 @@ def fetch_confirmed_cases(organ: str, limit: int) -> list[dict[str, Any]]:
     )
 
 
+EDGE_OF_RANGE_SCORE = 0.35  # concern score right at the boundary of "inside" — see note below
+
 def _value_fit(value: float, spec: RangeSpec) -> tuple[float, str, float]:
+    """Returns a *concern* score: low when the value sits comfortably inside
+    the normal range, rising only as it approaches or crosses the edge.
+
+    FIXED (found live, 2026-08-20): this used to score ANY in-range value at
+    0.85-1.0 — i.e. being solidly, healthily centered in the normal range
+    scored as strong evidence of a problem (0.85 already clears the "high"
+    flag threshold of 0.80), while sitting at the edge of normal scored
+    *lower*. That's inverted from what "normal range" should mean, and since
+    KIDNEY/STOMACH/ORAL's normal bands overlap heavily, it meant a
+    genuinely healthy reading would still get forced onto whichever organ
+    it happened to be nearest the center of, at flag=medium/high — which is
+    exactly what triggers the WhatsApp outreach guarantee's appointment
+    offer for a healthy patient. Now: 0 at the range's midpoint, rising to
+    EDGE_OF_RANGE_SCORE at the boundary (deliberately still below the
+    "medium" flag threshold of 0.60 - the edge of normal shouldn't itself
+    read as concerning), and continuing to climb past the boundary using
+    the same normalized-deviation math the "outside" branch already used,
+    so the two branches meet continuously at the edge with no discontinuity.
+    """
     width = max(spec.max_value - spec.min_value, 1e-9)
     if spec.min_value <= value <= spec.max_value:
         midpoint = (spec.min_value + spec.max_value) / 2.0
         half_width = width / 2.0
-        centrality = 1.0 - min(abs(value - midpoint) / max(half_width, 1e-9), 1.0)
-        return 0.85 + 0.15 * centrality, "inside", 0.0
+        centrality_gap = min(abs(value - midpoint) / max(half_width, 1e-9), 1.0)
+        return EDGE_OF_RANGE_SCORE * centrality_gap**2, "inside", 0.0
 
     distance = spec.min_value - value if value < spec.min_value else value - spec.max_value
     normalized_deviation = distance / width
-    score = max(0.0, 0.85 - normalized_deviation)
+    score = min(1.0, EDGE_OF_RANGE_SCORE + normalized_deviation)
     flag = "borderline" if normalized_deviation <= 0.15 else "outside"
     return score, flag, normalized_deviation
 
