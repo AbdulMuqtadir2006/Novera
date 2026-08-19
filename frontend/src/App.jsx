@@ -10,12 +10,14 @@ import { IOSInstallBanner } from "./components/ui/IOSInstallBanner";
 import { RequireAuth } from "./components/auth/RequireAuth";
 
 // Code-split every route so the homepage doesn't pay for the app bundles.
+// Voice.jsx and Appointments.jsx are intentionally left unwired here (not
+// deleted) — both features are paused for now, not removed. See git history
+// for the routes that used to point at them (/voice, /more) if either needs
+// to come back.
 const Home = lazy(() => import("./pages/Home"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Reports = lazy(() => import("./pages/Reports"));
-const Voice = lazy(() => import("./pages/Voice"));
 const SelfCare = lazy(() => import("./pages/SelfCare"));
-const Appointments = lazy(() => import("./pages/Appointments"));
 const ComingSoon = lazy(() => import("./pages/ComingSoon"));
 const Login = lazy(() => import("./pages/Login"));
 const Signup = lazy(() => import("./pages/Signup"));
@@ -49,9 +51,8 @@ export default function App() {
                 <Route path="/signup" element={<Signup />} />
                 <Route path="/dashboard" element={gated(<Dashboard />)} />
                 <Route path="/reports" element={gated(<Reports />)} />
-                <Route path="/voice" element={gated(<Voice />)} />
                 <Route path="/self-care" element={gated(<SelfCare />)} />
-                <Route path="/more" element={gated(<Appointments />)} />
+                <Route path="/subscription" element={<ComingSoon />} />
                 <Route path="*" element={<ComingSoon />} />
               </Routes>
             </AnimatePresence>
