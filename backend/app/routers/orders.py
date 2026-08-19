@@ -40,6 +40,7 @@ def _order_out(order: dict, items: list[dict]) -> dict:
         "status": order["status"],
         "currency": order["currency"],
         "total_omr": order["total_baisa"] / 1000,
+        "total_usd": catalog.baisa_to_usd(order["total_baisa"]),
         "email": order["email"],
         "created_at": order["created_at"],
         "items": [
@@ -49,7 +50,9 @@ def _order_out(order: dict, items: list[dict]) -> dict:
                 "name": it["name"],
                 "quantity": it["quantity"],
                 "unit_price_omr": it["unit_price_baisa"] / 1000,
+                "unit_price_usd": catalog.baisa_to_usd(it["unit_price_baisa"]),
                 "line_total_omr": it["line_total_baisa"] / 1000,
+                "line_total_usd": catalog.baisa_to_usd(it["line_total_baisa"]),
             }
             for it in items
         ],

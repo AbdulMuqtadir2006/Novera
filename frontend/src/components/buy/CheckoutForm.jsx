@@ -17,14 +17,14 @@ const EMPTY = {
 function Field({ id, label, value, onChange, required = true, type = "text" }) {
   return (
     <label htmlFor={id} className="block">
-      <span className="mb-1.5 block text-xs font-medium text-slate-400">{label}</span>
+      <span className="mb-1.5 block text-xs font-medium text-depth/60">{label}</span>
       <input
         id={id}
         type={type}
         required={required}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-2.5 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-signal/60 focus:bg-white/[0.08]"
+        className="w-full rounded-xl border border-depth/15 bg-paper px-4 py-2.5 text-sm text-depth outline-none transition placeholder:text-depth/35 focus:border-signal"
       />
     </label>
   );
@@ -57,8 +57,8 @@ export function CheckoutForm({ onSubmit, submitting, error }) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="mt-6 space-y-4 border-t border-white/10 pt-6">
-      <h3 className="font-display text-base font-semibold text-white">{t("buy.checkout.title")}</h3>
+    <form onSubmit={handleSubmit} className="mt-6 space-y-4 border-t border-depth/10 pt-6">
+      <h3 className="font-display text-base font-semibold text-depth">{t("buy.checkout.title")}</h3>
 
       <div className="grid grid-cols-2 gap-3">
         <Field id="co-email" label={t("buy.checkout.email")} type="email" value={form.email} onChange={set("email")} />
@@ -86,7 +86,7 @@ export function CheckoutForm({ onSubmit, submitting, error }) {
         {submitting ? <Loader2 size={18} className="animate-spin" /> : <Lock size={16} />}
         {submitting ? t("buy.checkout.processing") : t("buy.checkout.pay")}
       </button>
-      <p className="text-center font-mono text-[11px] text-slate-500" dir="ltr">
+      <p className="text-center font-mono text-[11px] text-depth/45" dir="ltr">
         {t("buy.checkout.currencyNote")}
       </p>
     </form>

@@ -32,6 +32,12 @@ def _omr_baisa(usd: float) -> int:
     return round(usd * OMR_PER_USD * 1000)
 
 
+def baisa_to_usd(baisa: int) -> float:
+    """Reverse of the above — used to show a USD-equivalent figure for
+    amounts already charged in OMR (e.g. a past order), display-only."""
+    return round((baisa / 1000) / OMR_PER_USD, 2)
+
+
 @dataclass(frozen=True)
 class Product:
     sku: str
@@ -73,9 +79,14 @@ RECOMMENDED_SKU = "VALUE"
 def public_catalog() -> dict:
     """Customer-facing shape for GET /api/catalog — price/contents only,
     never COGS/margin (that's internal financial-model data, not for the
-    storefront)."""
+    storefront). USD is the display-primary currency (per Hassan,
+    2026-08-20) with the OMR conversion shown small alongside it — but
+    OMR/baisa is still what actually gets charged via Thawani (Thawani only
+    accepts OMR); `currency` stays "OMR" since that's what a completed
+    checkout is denominated in, USD here is display-only."""
     return {
         "currency": "OMR",
+        "display_currency": "USD",
         "device": _public_product(DEVICE),
         "bundles": [_public_product(CATALOG[sku]) for sku in BUNDLE_SKUS],
         "recommended_sku": RECOMMENDED_SKU,
@@ -88,6 +99,8 @@ def _public_product(p: Product) -> dict:
         "item_type": p.item_type,
         "name": p.name,
         "strip_count": p.strip_count,
+        "price_usd": p.usd_price,
         "price_omr": p.omr_price,
+        "price_per_strip_usd": round(p.usd_price / p.strip_count, 3) if p.strip_count else None,
         "price_per_strip_omr": p.price_per_strip_omr,
     }

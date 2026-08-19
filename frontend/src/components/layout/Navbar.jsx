@@ -102,9 +102,6 @@ export function Navbar() {
   const { pathname } = useLocation();
   const { t } = useLang();
   const isHome = pathname === "/";
-  // Buy + order confirmation use the dark ink theme (like Home), not the
-  // light "paper" theme the logged-in app pages (Dashboard/Reports/etc.) use.
-  const isDarkPage = isHome || pathname.startsWith("/buy") || pathname.startsWith("/order/");
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -116,13 +113,12 @@ export function Navbar() {
 
   useEffect(() => setOpen(false), [pathname]);
 
-  // Dark-themed pages (Home, Buy, order confirmation): transparent throughout.
-  // Light-themed app subpages (Dashboard/Reports/etc.): solid paper.
-  const overDark = isDarkPage;
-  const headerClass = isDarkPage
+  // Home: transparent throughout (the whole page is dark ink). Subpages: solid paper.
+  const overDark = isHome;
+  const headerClass = isHome
     ? "bg-transparent border-transparent"
     : "bg-paper/90 backdrop-blur-md border-signal/10";
-  const menuColor = isDarkPage ? "text-white" : "text-depth";
+  const menuColor = isHome ? "text-white" : "text-depth";
 
   return (
     <>
