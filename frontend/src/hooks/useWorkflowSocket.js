@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ALL_NODE_IDS, TOOL_NODE_IDS } from "../data/liveWorkflow";
+import { ALL_NODE_IDS, TOOL_NODE_IDS, WHATSAPP_RESETTABLE_NODE_IDS, WHATSAPP_TRIGGER_NODE_IDS } from "../data/liveWorkflow";
 
 // Same VITE_API_URL the REST layer resolves against (lib/api.js) — unset in
 // dev, where requests proxy through Vite to localhost:8000. There's no dev
@@ -28,6 +28,12 @@ export function useWorkflowSocket() {
   const [nodeStatus, setNodeStatus] = useState(idleNodeStatus);
   const [currentLabel, setCurrentLabel] = useState(null);
   const [lastRunSummary, setLastRunSummary] = useState(null);
+  // Lane-2 (WhatsApp Agent) gets its own "just concluded" summary, kept
+  // separate from lastRunSummary above — sharing one would make a WhatsApp
+  // trigger completing incorrectly fire lane-1's agent conclusion-pulse
+  // animation (and vice versa). See LiveWorkflowDiagram.jsx's justConcluded
+  // handling, now keyed per-lane off whichever of these actually changed.
+  const [waLastRunSummary, setWaLastRunSummary] = useState(null);
   const [lastEventAt, setLastEventAt] = useState(null);
 
   const socketRef = useRef(null);
@@ -49,7 +55,11 @@ export function useWorkflowSocket() {
       setCurrentLabel(evt.label ?? null);
       setLastEventAt(Date.now());
 
+      const isWhatsapp = evt.source === "whatsapp";
+
       if (evt.type === "run_start") {
+        // Lane 1 (device-sourced) only — lane 2 has no equivalent "device"
+        // node to flip, and resets itself per-trigger below instead.
         setNodeStatus((prev) => {
           const next = { ...prev };
           for (const id of TOOL_NODE_IDS) next[id] = "idle";
@@ -71,12 +81,32 @@ export function useWorkflowSocket() {
                   ? "idle"
                   : null;
         if (!status) return;
+
+        // A whatsapp trigger node starting is lane 2's equivalent of
+        // run_start — reset the rest of lane 2 (other triggers + all tool
+        // groups) to idle first, then fall through to apply this node's own
+        // status below, same two-step shape lane 1's run_start + step
+        // events already achieve via two separate messages.
+        if (isWhatsapp && evt.status === "start" && WHATSAPP_TRIGGER_NODE_IDS.includes(evt.node)) {
+          setNodeStatus((prev) => {
+            const next = { ...prev };
+            for (const id of WHATSAPP_RESETTABLE_NODE_IDS) next[id] = "idle";
+            next[evt.node] = "active";
+            return next;
+          });
+          return;
+        }
+
         setNodeStatus((prev) => (prev[evt.node] === status ? prev : { ...prev, [evt.node]: status }));
         return;
       }
 
       if (evt.type === "run_end") {
-        setLastRunSummary(evt.label ?? null);
+        if (isWhatsapp) {
+          setWaLastRunSummary(evt.label ?? null);
+        } else {
+          setLastRunSummary(evt.label ?? null);
+        }
       }
     }
 
@@ -126,5 +156,5 @@ export function useWorkflowSocket() {
     };
   }, []);
 
-  return { connected, nodeStatus, currentLabel, lastRunSummary, lastEventAt };
+  return { connected, nodeStatus, currentLabel, lastRunSummary, waLastRunSummary, lastEventAt };
 }
