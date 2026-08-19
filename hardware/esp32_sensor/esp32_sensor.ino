@@ -84,8 +84,8 @@
 WiFiMulti wifiMulti;
 const char *WIFI_SSID_1 = "Zuhaib";
 const char *WIFI_PASSWORD_1 = "zuhaib2006";
-const char *WIFI_SSID_2 = "YOUR_HOTSPOT_SSID";
-const char *WIFI_PASSWORD_2 = "YOUR_HOTSPOT_PASSWORD";
+const char *WIFI_SSID_2 = "king hamza";
+const char *WIFI_PASSWORD_2 = "12345678";
 
 const char *API_URL = "https://api.echo-nova.online/api/readings";
 const char *PING_URL = "https://api.echo-nova.online/api/device/ping";
@@ -235,8 +235,30 @@ void connectWiFi() {
 // Reads all AS7341 channels once. Returns false (and leaves out[] untouched)
 // if the sensor didn't respond — caller should treat that as "try again",
 // never as a zero reading.
+//
+// BUG FIX (found 2026-08-19): Adafruit_AS7341::readAllChannels() actually
+// fills a 12-value buffer, not 10 — [F1,F2,F3,F4,CLEAR,NIR, F5,F6,F7,F8,
+// CLEAR,NIR] (it reads the low SMUX config, then the high SMUX config into
+// the second half). Passing our 10-element `out` straight to it, as this
+// function used to, overflowed the stack array by 4 bytes AND scrambled the
+// labels: what got called "F5"/"F6" downstream was really the low-pass
+// CLEAR/NIR, "CLEAR"/"NIR" was really the true F7/F8, and the true final
+// CLEAR/NIR were dropped entirely. Read into a real 12-wide buffer here and
+// remap explicitly so `out` matches its documented [F1..F8,CLEAR,NIR] order.
 bool readAS7341Once(uint16_t out[AS7341_CHANNEL_COUNT]) {
-  return as7341.readAllChannels(out);
+  uint16_t raw12[12];
+  if (!as7341.readAllChannels(raw12)) return false;
+  out[0] = raw12[0];  // F1
+  out[1] = raw12[1];  // F2
+  out[2] = raw12[2];  // F3
+  out[3] = raw12[3];  // F4
+  out[4] = raw12[6];  // F5
+  out[5] = raw12[7];  // F6
+  out[6] = raw12[8];  // F7
+  out[7] = raw12[9];  // F8
+  out[CLEAR_IDX] = raw12[10]; // CLEAR (high-pass read; low-pass raw12[4] is the same channel, near-identical value)
+  out[NIR_IDX] = raw12[11];   // NIR
+  return true;
 }
 
 // Averages AS7341 readings across a FIXED window — not stability-detected
