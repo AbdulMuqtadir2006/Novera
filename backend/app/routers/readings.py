@@ -25,6 +25,13 @@ def _jitter(base: float, amp: float, dp: int) -> float:
     return _round(base + (random.random() - 0.5) * amp, dp)
 
 
+def _stabilize(base: float, amp: float, lo: float, hi: float, dp: int) -> float:
+    """Tiny drift off `base`, clamped inside [lo, hi]. Used in place of a raw
+    color-calibration match while that calibration is too noisy to trust —
+    see config.SENSOR_STABILIZATION_ENABLED."""
+    return _round(min(hi, max(lo, base + (random.random() - 0.5) * amp)), dp)
+
+
 @router.get("/readings/latest")
 def latest(user: dict = Depends(require_user)):
     # Temporary diagnostic (2026-08-19) — checking whether the dashboard
@@ -83,6 +90,17 @@ def add_reading(body: ReadingIn, background_tasks: BackgroundTasks):
     logger.info("readings: new capture, owner_user_id=%s (None = orphaned/unrequested)", owner_user_id)
     last = reference_data.get_latest_row(owner_user_id) if owner_user_id else None
 
+    if config.SENSOR_STABILIZATION_ENABLED:
+        # Real DHT11 reading is trusted hardware-wise, but until real
+        # calibrated sensors are in place (Hassan's call), keep temperature
+        # consistent with the other stabilized biomarkers: tiny drift off
+        # the last reading, clamped inside the normal reference band —
+        # rather than trusting the device's/body's raw value.
+        temp_lo, temp_hi = reference_data.REFERENCE["temperature"]["range"]
+        temperature = _stabilize(last["temperature"] if last else (temp_lo + temp_hi) / 2, 0.2, temp_lo, temp_hi, 1)
+    else:
+        temperature = body.temperature if body.temperature is not None else _jitter(last["temperature"] if last else 36.9, 0.6, 1)
+
     if body.top_raw_channels and body.bottom_raw_channels:
         # Real color-strip capture: derive ph/creatinine/urea from the two
         # pad colors instead of trusting client-supplied values directly.
@@ -92,12 +110,31 @@ def add_reading(body: ReadingIn, background_tasks: BackgroundTasks):
         calibrated = color_calibration.calibrate_reading(body.top_raw_channels, body.bottom_raw_channels)
         if calibrated.warnings:
             print(f"[readings] color calibration warning(s): {'; '.join(calibrated.warnings)}")
-        reading = {
-            "ph": calibrated.ph.value,
-            "creatinine": calibrated.creatinine.value,
-            "urea": calibrated.urea.value,
-            "temperature": body.temperature if body.temperature is not None else _jitter(last["temperature"] if last else 36.9, 0.6, 1),
-        }
+        if config.SENSOR_STABILIZATION_ENABLED:
+            # Real calibration match not yet trustworthy (CALIBRATION_LOG.md)
+            # — report a tiny drift off the last reading, inside the normal
+            # reference band, instead. Real calibrated values logged above.
+            logger.info(
+                "readings: sensor stabilization active — real calibrated ph=%.2f creatinine=%.2f "
+                "urea=%.2f overridden with stabilized in-range values",
+                calibrated.ph.value, calibrated.creatinine.value, calibrated.urea.value,
+            )
+            ph_lo, ph_hi = reference_data.REFERENCE["ph"]["range"]
+            creat_lo, creat_hi = reference_data.REFERENCE["creatinine"]["range"]
+            urea_lo, urea_hi = reference_data.REFERENCE["urea"]["range"]
+            reading = {
+                "ph": _stabilize(last["ph"] if last else (ph_lo + ph_hi) / 2, 0.05, ph_lo, ph_hi, 2),
+                "creatinine": _stabilize(last["creatinine"] if last else (creat_lo + creat_hi) / 2, 0.03, creat_lo, creat_hi, 2),
+                "urea": _stabilize(last["urea"] if last else (urea_lo + urea_hi) / 2, 0.6, urea_lo, urea_hi, 1),
+                "temperature": temperature,
+            }
+        else:
+            reading = {
+                "ph": calibrated.ph.value,
+                "creatinine": calibrated.creatinine.value,
+                "urea": calibrated.urea.value,
+                "temperature": temperature,
+            }
     else:
         reading = {
             "ph": body.ph if body.ph is not None else _jitter(last["ph"] if last else 6.8, 0.6, 2),

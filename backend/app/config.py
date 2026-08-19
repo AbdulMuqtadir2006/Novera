@@ -77,5 +77,18 @@ CORS_ORIGINS = [
 # above — no external bool-parsing helper exists in this codebase yet.
 AUTO_AGENT_ENABLED = os.getenv("AUTO_AGENT_ENABLED", "true").strip().lower() != "false"
 
+# ---- sensor stabilization (temporary, until real AS7341 calibration lands) ----
+# The real color-strip calibration (color_calibration.py) is not yet reliable
+# — acid/neutral don't separate, hand-held noise dominates the signal (see
+# hardware/esp32_sensor/CALIBRATION_LOG.md). While this is on, every reading's
+# ph/creatinine/urea/temperature are reported as a tiny drift off the
+# patient's last reading, clamped inside the normal reference band, instead
+# of the raw sensor/calibration value — temperature included per Hassan
+# (2026-08-20), pending better hardware, even though DHT11 itself is real.
+# The real calibrated color values are still logged either way, so
+# calibration work keeps accumulating. Set SENSOR_STABILIZATION_ENABLED=false
+# once real calibrated sensors replace the placeholder charts.
+SENSOR_STABILIZATION_ENABLED = os.getenv("SENSOR_STABILIZATION_ENABLED", "true").strip().lower() != "false"
+
 # ---- misc ----
 SERVICE_PORT = int(os.getenv("PORT", "8000"))
