@@ -1,5 +1,5 @@
 import { Suspense, lazy } from "react";
-import { Routes, Route, useLocation } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
 import { Navbar } from "./components/layout/Navbar";
 import { Footer } from "./components/layout/Footer";
@@ -21,6 +21,8 @@ const SelfCare = lazy(() => import("./pages/SelfCare"));
 const ComingSoon = lazy(() => import("./pages/ComingSoon"));
 const Login = lazy(() => import("./pages/Login"));
 const Signup = lazy(() => import("./pages/Signup"));
+const Buy = lazy(() => import("./pages/Buy"));
+const OrderConfirmation = lazy(() => import("./pages/OrderConfirmation"));
 
 const gated = (el) => <RequireAuth>{el}</RequireAuth>;
 
@@ -52,7 +54,11 @@ export default function App() {
                 <Route path="/dashboard" element={gated(<Dashboard />)} />
                 <Route path="/reports" element={gated(<Reports />)} />
                 <Route path="/self-care" element={gated(<SelfCare />)} />
-                <Route path="/subscription" element={<ComingSoon />} />
+                <Route path="/buy" element={<Buy />} />
+                <Route path="/order/:token" element={<OrderConfirmation />} />
+                {/* /subscription was a placeholder before the pivot to one-time
+                    device/bundle pricing — redirect any old links/bookmarks. */}
+                <Route path="/subscription" element={<Navigate to="/buy" replace />} />
                 <Route path="*" element={<ComingSoon />} />
               </Routes>
             </AnimatePresence>

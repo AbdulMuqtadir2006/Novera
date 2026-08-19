@@ -17,7 +17,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from . import config, ws
 from .core import scheduler, scoring
 from .rate_limit import limiter
-from .routers import appointments, auth, content_agents, device, health, patient_context, readings, screening, whatsapp
+from .routers import appointments, auth, content_agents, device, health, orders, patient_context, readings, screening, whatsapp
 
 # Without this, every logger.info()/logger.warning() call in this codebase
 # (whatsapp_agent.py, guidance_agent.py, scheduler.py, etc. — extensive,
@@ -74,6 +74,7 @@ app.include_router(patient_context.router, prefix="/api", tags=["patient-context
 app.include_router(content_agents.router, prefix="/api", tags=["ai"])
 app.include_router(screening.router, prefix="/api", tags=["screening"])
 app.include_router(appointments.router, prefix="/api", tags=["appointments"])
+app.include_router(orders.router, prefix="/api", tags=["orders"])
 app.include_router(whatsapp.router, tags=["whatsapp"])  # bare /webhook, per req 10
 
 

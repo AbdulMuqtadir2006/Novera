@@ -137,6 +137,12 @@ export async function streamPredictOrgan(onEvent) {
     specialist_results: finalResult.specialist_results,
   };
 }
+// ---- store (device + strip bundles) ----
+export const getCatalog = () => req("/catalog");
+export const checkout = (payload) =>
+  req("/orders/checkout", { method: "POST", body: JSON.stringify(payload) });
+export const getOrder = (orderToken) => req(`/orders/${orderToken}`);
+
 export const getClinic = () => req("/clinic");
 export const sendAppointmentOffer = (opts = {}) =>
   req("/appointment/offer", { method: "POST", body: JSON.stringify(opts) });

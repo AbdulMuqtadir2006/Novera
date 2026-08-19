@@ -1,6 +1,6 @@
 # AI Context — Novera
 
-Last updated: 2026-08-15. Read this first in any new session before touching the code — it captures
+Last updated: 2026-08-20. Read this first in any new session before touching the code — it captures
 what's actually built, deployed, and working right now, plus the non-obvious gotchas that cost real
 debugging time to find.
 
@@ -259,6 +259,74 @@ gained `planChanged` (additive, alongside the existing `contextChanged`) so the 
 refresh the plan view after a chat-driven edit. Verified live: asking the coach to swap a meal for a
 lower-sodium option produced a real persisted diet-plan edit, not just a chat reply describing one.
 
+### Real AS7341/DHT11 hardware wired in, calibration still unreliable (2026-08-18/19)
+
+Hardware is no longer dummy-mode — see `hardware/esp32_sensor/CALIBRATION_LOG.md` for the full,
+still-current story: real sensors are wired in, a channel-mapping firmware bug was found and fixed,
+but acid/neutral pH still don't separate on any tried metric and hand-held noise dominates the signal.
+`backend/app/core/color_calibration.py` holds the (placeholder) raw-channels-to-value calibration math.
+
+### Sensor stabilization + screening-flag suppression (added 2026-08-20)
+
+Two temporary, config-toggled overrides, both Hassan's explicit call while hardware/calibration catch
+up — neither changes stored `combined_score`/calibrated-color data, both are meant to be flipped off
+later, not permanent:
+
+- `config.SENSOR_STABILIZATION_ENABLED` (default true): `routers/readings.py` reports every biomarker
+  (ph/creatinine/urea, and temperature too, per Hassan) as a tiny drift off the patient's last reading,
+  clamped inside the normal reference band, instead of the raw sensor/calibration value. The real
+  calibrated color values are still logged for calibration work.
+- `config.SUPPRESS_SCREENING_FLAGS` (default true): `scoring.ScoringEngine.evaluate()` forces every
+  organ's `flag` to `"low"`, which mutes `whatsapp_gating.enforce_outreach_guarantee`'s forced
+  appointment offer. This was on top of a real, separate bug fix in the same file: `_value_fit()` used
+  to score any in-range value at 0.85-1.0 (already past the "high" threshold) — a genuinely healthy
+  reading was getting forced onto whichever organ it was nearest the center of, at flag=medium/high.
+  Rescaled so concern is 0 at a range's midpoint and rises only near/past the edge; verified a mid-normal
+  reading now scores ~0.29-0.35 instead of ~0.90+. The flag-suppression override sits on top of that fix,
+  not instead of it.
+
+### Report PDF layout fixes (added 2026-08-20)
+
+Both the website's downloaded PDF and the WhatsApp-attached PDF had real layout bugs, fixed separately:
+`frontend/src/components/reports/generateReportPdf.js` was slicing one html2canvas screenshot into
+fixed-height page chunks with no regard for content boundaries (table rows/text cut in half at page
+breaks) — now finds the nearest blank row near each boundary and slices there, with a top margin on
+pages after the first. `backend/app/core/report_pdf.py`'s header used a fixed-width single-line
+right-aligned headline cell that could overflow into the NOVERA wordmark for a long LLM-generated
+headline — now wraps via `multi_cell`; also added a page-break guard around the biomarkers table.
+
+### Store: device + strip-bundle purchase page (added 2026-08-20)
+
+`/buy` (route in `App.jsx`, replacing the old `/subscription` placeholder — `/subscription` now
+redirects to `/buy`). One-time purchases only, no subscription of any kind, no referral/hospital-booking
+content (out of scope for this page). Pricing lives in exactly one place — `backend/app/core/catalog.py`
+— and is load-bearing for the business model; the frontend has zero hardcoded prices, it fetches
+`GET /api/catalog`, and checkout always re-prices server-side from the same module, never from client
+input. USD prices convert to OMR at the Central Bank of Oman's fixed peg (1 USD = 0.3845 OMR, pegged
+since 1986 — see `catalog.py`'s docstring for the source), rounded to whole baisa.
+
+- `frontend/src/pages/Buy.jsx` + `components/buy/{BundleCard,CheckoutForm}.jsx` — device section, the
+  3-bundle comparison (Value marked recommended, matching the model's target mix), a `?mode=strips`
+  entry point for existing owners (same route, skips device copy, jumps to bundles), and a cart/checkout
+  sidebar. Device and every bundle are separate "add to order" line items sharing one cart — decided
+  against auto-bundling strips into the device purchase, since a uniform per-product add-to-cart flow is
+  simpler and the revenue math is the same either way (see `routers/orders.py`'s `item_type` column).
+- `backend/app/routers/orders.py` — `GET /api/catalog` (public), `POST /api/orders/checkout` (public,
+  guest checkout allowed — no account required to buy strips), `GET /api/orders/callback` (Thawani's
+  redirect target; re-verifies payment status via Thawani's own API before ever marking an order paid —
+  never trusts the mere fact of the redirect), `GET /api/orders/{token}` (order status by an opaque
+  token, not the sequential id, so orders can't be enumerated).
+- `backend/app/core/thawani.py` — hand-rolled Thawani client (no official Python SDK); the REST contract
+  was read from Thawani's own open-source WooCommerce plugin source, not guessed. Fails honestly (503,
+  nothing charged) via `config.THAWANI_ENABLED` until real `THAWANI_SECRET_KEY`/`THAWANI_PUBLISHABLE_KEY`
+  are set — no live merchant credentials exist yet.
+- `db/schema.sql`'s `orders`/`order_items` tables: device and bundle line items are never collapsed into
+  one SKU even in the same order, tagged `item_type` (`device`/`bundle`) so the financial model can query
+  the two revenue lines separately.
+- `Navbar.jsx`'s dark/light theme switch was previously keyed only on `pathname === "/"` — extended to
+  also treat `/buy` and `/order/:token` as dark-ink pages (they're storefront/marketing pages, not the
+  logged-in app's light theme).
+
 ## Key files / architecture
 
 - `backend/app/main.py` — FastAPI entry; routers in `backend/app/routers/`.
@@ -376,6 +444,14 @@ lower-sodium option produced a real persisted diet-plan edit, not just a chat re
 - **`echo-nova.online` (bare apex) custom domain** — was being attached in parallel with `www`;
   verify it's still resolving correctly in a fresh check before assuming it's stable, since this was
   mid-troubleshooting when last touched.
+- **Thawani not actually live yet** — `/buy` checkout is real, working code (see "Store" section
+  above) but `THAWANI_SECRET_KEY`/`THAWANI_PUBLISHABLE_KEY` aren't set anywhere yet, so checkout
+  currently 503s honestly rather than charging anyone. Needs real Thawani merchant credentials
+  (thawani.om) before it can take a real payment — register, then set both env vars on Railway (and
+  flip `THAWANI_ENV=production` once past UAT testing).
+- **`SENSOR_STABILIZATION_ENABLED`/`SUPPRESS_SCREENING_FLAGS`** (both default true, `config.py`) —
+  temporary overrides pending better hardware/calibration, meant to be flipped off deliberately later,
+  not permanent product decisions. See the dated section above before assuming either is still needed.
 
 ## Related knowledge base notes
 

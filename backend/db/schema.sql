@@ -358,3 +358,47 @@ BEGIN
         ALTER TABLE self_care_plan ADD CONSTRAINT self_care_plan_user_id_key UNIQUE (user_id);
     END IF;
 END $$;
+
+-- ---------------------------------------------------------------------------
+-- Store: device + strip-bundle purchases (added 2026-08-20). No subscription
+-- of any kind — every order is one-time. Pricing is never trusted from the
+-- client: routers/orders.py always re-prices from app/core/catalog.py
+-- server-side. Guest checkout is allowed (see spec) so user_id is nullable.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS orders (
+    id                  SERIAL PRIMARY KEY,
+    -- Opaque, unguessable public identifier for GET /api/orders/{token} and
+    -- the post-payment confirmation page — never the sequential id, so an
+    -- order can't be enumerated/guessed by walking integers (IDOR).
+    order_token         TEXT NOT NULL UNIQUE,
+    user_id             INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    email               TEXT NOT NULL,
+    phone               TEXT NOT NULL,
+    shipping_address    JSONB NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending', 'paid', 'cancelled', 'failed')),
+    currency            TEXT NOT NULL DEFAULT 'OMR',
+    total_baisa         INTEGER NOT NULL CHECK (total_baisa >= 0),
+    thawani_session_id  TEXT,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders (user_id, created_at DESC);
+
+-- Device and bundle stay separate line items even in the same order — never
+-- collapsed into one SKU — so device revenue and bundle revenue are two
+-- separate, queryable lines for the financial model (item_type), per spec.
+CREATE TABLE IF NOT EXISTS order_items (
+    id                  SERIAL PRIMARY KEY,
+    order_id            INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    sku                 TEXT NOT NULL CHECK (sku IN ('DEVICE', 'STARTER', 'VALUE', 'PRO')),
+    item_type           TEXT NOT NULL CHECK (item_type IN ('device', 'bundle')),
+    name                TEXT NOT NULL,
+    unit_price_baisa    INTEGER NOT NULL CHECK (unit_price_baisa >= 0),
+    quantity            INTEGER NOT NULL CHECK (quantity > 0),
+    line_total_baisa    INTEGER NOT NULL CHECK (line_total_baisa >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items (order_id);

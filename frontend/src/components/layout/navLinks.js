@@ -3,5 +3,5 @@ export const navLinks = [
   { to: "/dashboard", key: "nav.dashboard" },
   { to: "/reports", key: "nav.reports" },
   { to: "/self-care", key: "nav.selfCare" },
-  { to: "/subscription", key: "nav.subscription" },
+  { to: "/buy", key: "nav.buy" },
 ];

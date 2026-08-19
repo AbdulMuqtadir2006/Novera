@@ -55,6 +55,21 @@ NEXT_DAY_MORNING_HOUR = 8
 # an unregistered number texts in) ----
 SIGNUP_URL = os.getenv("SIGNUP_URL", "https://www.echo-nova.online/signup").strip()
 
+# ---- public URLs (for building redirect targets outside the request) ----
+PUBLIC_SITE_URL = os.getenv("PUBLIC_SITE_URL", "https://www.echo-nova.online").strip()
+PUBLIC_API_URL = os.getenv("PUBLIC_API_URL", "https://api.echo-nova.online").strip()
+
+# ---- Thawani (Oman payment gateway) — device/strip-bundle checkout ----
+# No live merchant credentials exist yet — checkout stays honestly disabled
+# (routers/orders.py returns 503, never a fake "payment successful") until
+# both keys are set. THAWANI_ENV picks Thawani's UAT vs production API base
+# (see core/thawani.py) — "development" (UAT, sandbox) by default so this
+# can't accidentally go live before someone deliberately flips it.
+THAWANI_SECRET_KEY = os.getenv("THAWANI_SECRET_KEY", "").strip()
+THAWANI_PUBLISHABLE_KEY = os.getenv("THAWANI_PUBLISHABLE_KEY", "").strip()
+THAWANI_ENV = os.getenv("THAWANI_ENV", "development").strip()
+THAWANI_ENABLED = bool(THAWANI_SECRET_KEY and THAWANI_PUBLISHABLE_KEY)
+
 # ---- CORS (req 15) ----
 CORS_ORIGINS = [
     origin.strip()

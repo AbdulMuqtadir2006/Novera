@@ -142,6 +142,29 @@ class FinalDecision(BaseModel):
     reason: str = Field(min_length=15, max_length=600)
 
 
+# ---- store (device + strip-bundle checkout) ----
+class OrderItemIn(BaseModel):
+    sku: Literal["DEVICE", "STARTER", "VALUE", "PRO"]
+    quantity: int = Field(ge=1, le=20)
+
+
+class ShippingAddress(BaseModel):
+    full_name: str = Field(min_length=1, max_length=200)
+    line1: str = Field(min_length=1, max_length=300)
+    line2: str = ""
+    city: str = Field(min_length=1, max_length=120)
+    governorate: str = ""
+    postal_code: str = ""
+    country: str = "Oman"
+
+
+class CheckoutReq(BaseModel):
+    email: str
+    phone: str
+    shipping_address: ShippingAddress
+    items: list[OrderItemIn] = Field(min_length=1, max_length=20)
+
+
 # ---- WhatsApp appointment reply understanding ----
 class AppointmentReplyIntent(BaseModel):
     intent: Literal["confirm", "decline", "reschedule", "question", "unknown"]
