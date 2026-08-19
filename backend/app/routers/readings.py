@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import random
 from datetime import datetime, timezone
 
@@ -9,6 +10,8 @@ from .. import config, db
 from ..core import color_calibration, guidance_agent, reference_data
 from ..deps import require_user
 from ..schemas import ReadingIn
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -54,14 +57,26 @@ def add_reading(body: ReadingIn, background_tasks: BackgroundTasks):
     tool) and stamps it onto this new row. An unrequested/autonomous capture
     (nothing was pending) lands with user_id = NULL — orphaned, invisible on
     every dashboard, by design."""
+    # BUG FIX (found live, 2026-08-19): `UPDATE ... SET pending_sample_user_id
+    # = NULL RETURNING pending_sample_user_id` returns the row's state AFTER
+    # the update — i.e. always NULL, the value we just set, never the owner
+    # that was actually pending. Every reading since the multi-tenant
+    # migration deployed was landing orphaned regardless of who armed the
+    # device. Fixed with a CTE that reads the pre-update value: PostgreSQL
+    # evaluates a WITH clause's SELECT against the snapshot from before the
+    # main statement's writes, so `prev` genuinely holds the old value.
     pending_row = db.fetch_one(
         """
+        WITH prev AS (
+            SELECT pending_sample_user_id FROM device_state WHERE id = 1
+        )
         UPDATE device_state SET pending_sample = false, pending_sample_user_id = NULL
         WHERE id = 1
-        RETURNING pending_sample_user_id
+        RETURNING (SELECT pending_sample_user_id FROM prev) AS pending_sample_user_id
         """
     )
     owner_user_id = pending_row["pending_sample_user_id"] if pending_row else None
+    logger.info("readings: new capture, owner_user_id=%s (None = orphaned/unrequested)", owner_user_id)
     last = reference_data.get_latest_row(owner_user_id) if owner_user_id else None
 
     if body.top_raw_channels and body.bottom_raw_channels:

@@ -6,7 +6,11 @@ core/whatsapp_agent.py's request_sensor_reading tool.
 """
 from __future__ import annotations
 
+import logging
+
 from .. import db
+
+logger = logging.getLogger(__name__)
 
 
 def arm_device_for_user(user_id: int) -> None:
@@ -14,3 +18,4 @@ def arm_device_for_user(user_id: int) -> None:
         "UPDATE device_state SET pending_sample = true, pending_sample_user_id = %s WHERE id = 1",
         (user_id,),
     )
+    logger.info("device_control: armed device for user_id=%s", user_id)
