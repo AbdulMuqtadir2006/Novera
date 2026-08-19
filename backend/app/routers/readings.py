@@ -27,6 +27,10 @@ def _jitter(base: float, amp: float, dp: int) -> float:
 
 @router.get("/readings/latest")
 def latest(user: dict = Depends(require_user)):
+    # Temporary diagnostic (2026-08-19) — checking whether the dashboard
+    # account viewing this is actually the same user_id a WhatsApp-armed
+    # reading landed under. Railway's private logs only.
+    logger.info("readings/latest: requested by user_id=%s email=%s", user["id"], user.get("email"))
     row = reference_data.get_latest_row(user["id"])
     if not row:
         raise HTTPException(status_code=404, detail="no readings")
