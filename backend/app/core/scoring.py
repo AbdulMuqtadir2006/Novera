@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 from .. import config, db
 from . import reference_data
@@ -257,6 +257,44 @@ def claim_reading(reading_id: int) -> bool:
             (reading_id,),
         )
         return cur.rowcount == 1
+
+
+def get_latest_screening_flag() -> Optional[dict[str, Any]]:
+    """The flag (low/medium/high) for the most recently COMPLETED screening
+    case — used by the WhatsApp Agent's outreach guarantee (spec §6), which
+    needs to know whether the latest case was medium/high without recomputing
+    the whole pipeline. `flag` itself is only ever stored inside
+    decision_audit.specialist_results_json (per-organ), never as its own
+    column on screening_cases, so this re-derives it the same way
+    guidance_agent.py does at persist-time: look up the specialist result
+    whose organ matches the final prediction."""
+    row = db.fetch_one(
+        """
+        SELECT da.final_prediction, da.specialist_results_json, da.final_confidence,
+               sc.case_id
+        FROM decision_audit da
+        JOIN screening_cases sc ON sc.id = da.reading_id
+        ORDER BY da.id DESC
+        LIMIT 1
+        """
+    )
+    if not row:
+        return None
+    specialist_results = row["specialist_results_json"]
+    if isinstance(specialist_results, str):
+        specialist_results = json.loads(specialist_results)
+    flag = next(
+        (r["flag"] for r in specialist_results if r["organ"] == row["final_prediction"]),
+        None,
+    )
+    if flag is None:
+        return None
+    return {
+        "organ": row["final_prediction"],
+        "flag": flag,
+        "confidence": row["final_confidence"],
+        "case_id": row["case_id"],
+    }
 
 
 def release_reading(reading_id: int) -> None:

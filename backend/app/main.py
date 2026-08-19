@@ -5,6 +5,8 @@ LangGraph service into one FastAPI app on Postgres.
 """
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
@@ -12,7 +14,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from . import config, ws
-from .core import scoring
+from .core import scheduler, scoring
 from .rate_limit import limiter
 from .routers import appointments, auth, content_agents, device, health, patient_context, readings, screening, whatsapp
 
@@ -32,13 +34,26 @@ app.add_middleware(
 
 
 @app.on_event("startup")
-def _startup() -> None:
+async def _startup() -> None:
     # Cache reference ranges once at boot (req 9) instead of hitting Postgres
     # on every screening request.
     try:
         scoring.load_reference_ranges()
     except Exception as exc:
         print(f"[startup] reference range cache not warmed (DB not ready yet?): {exc}")
+
+    # Registers this running loop with ws.py so WhatsApp Agent's worker
+    # threads (asyncio.to_thread) can broadcast pipeline events back onto it
+    # via ws.broadcast_from_thread() — must happen before any WhatsApp
+    # activity, so it's done here at startup, not lazily.
+    ws.set_loop(asyncio.get_running_loop())
+
+    # WhatsApp Agent's proactive triggers (appointment/meal/wellness
+    # check-ins) — a real background task independent of any request, per
+    # novera-whatsapp-autonomous-agent-spec.md §3.2. Fire-and-forget: the
+    # loop itself never raises out (every poll is try/excepted internally),
+    # so this task is not expected to need supervision/restart.
+    asyncio.create_task(scheduler.scheduler_loop())
 
 
 app.include_router(health.router)

@@ -1,25 +1,36 @@
-"""NOVERA's autonomous Guidance Agent — the one genuinely agentic capability
-in this backend (everything else is "LLM-in-the-loop structured decisioning":
-one prompt in, one JSON object out, code decides what happens next).
+"""NOVERA's Guidance Agent — narrow, one-shot screening specialist (scope cut
+down 2026-08-19, see novera-whatsapp-autonomous-agent-spec.md). Its job ends
+at validate -> score -> decide -> report | request_retest. It used to also
+own voice-script generation, self-care planning, and a hardcoded-simulated
+appointment offer — all three moved to the autonomous WhatsApp Agent
+(core/whatsapp_agent.py), which can now generate them contextually inside a
+real conversation instead of pre-baking them on every reading regardless of
+whether anyone's about to see them.
 
 This orchestrator is real tool-calling: a `ChatOpenAI` bound to a set of
 tools, in a manual invoke -> tool_calls -> ToolMessage -> invoke loop (the
 same OpenRouter/ChatOpenAI pattern used throughout this codebase — see
 screening_llm.decide() and appointment_graph.py — just with `.bind_tools()`
 driving multi-step decisions instead of a single structured-output call).
-The model decides, per run, which of {screen, report, voice, self-care,
-offer appointment, request retest} to invoke and in what order; the code
-never hardcodes that sequence.
+The model decides, per run, which of {screen, report, request retest} to
+invoke and in what order; the code never hardcodes that sequence.
 
 Trigger: fired as a background asyncio task from routers/readings.py after
 every POST /api/readings (the ESP32's periodic push, or a simulated one) —
 never blocking that endpoint's response. Every step is broadcast live over
 app/ws.py (`/ws/pipeline`) for a public homepage diagram to visualize.
 
+Hand-off: once a screening decision is persisted, this fires a
+`screening.completed` trigger into the WhatsApp Agent for every registered
+user with a phone number (core/whatsapp_agent.handle_trigger) — as
+independent background tasks, not awaited inline, so this run's own
+throttle/lock releases promptly regardless of how long WhatsApp Agent runs
+take. Whether/how to actually contact the patient is now entirely WhatsApp
+Agent's call (plus the forced safety-floor guarantee in
+core/whatsapp_gating.py for medium/high flags) — this file no longer decides
+that itself.
+
 Hard safety constraints enforced in this file:
-  - offer_clinic_appointment() ALWAYS calls appointment_graph.send_offer
-    with simulate=True hardcoded — never a real WhatsApp send, no config
-    flag can change that.
   - config.AUTO_AGENT_ENABLED is the kill switch (checked by the caller in
     routers/readings.py) and is checked again here for defense in depth.
   - A 60s in-memory throttle (single Railway instance, no distributed
@@ -45,8 +56,8 @@ from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
-from .. import config, ws
-from . import appointment_graph, content_llm, reasoning_stream, reference_data, scoring, screening_llm
+from .. import config, db, ws
+from . import content_llm, reasoning_stream, reference_data, scoring, screening_llm, whatsapp_agent
 
 logger = logging.getLogger(__name__)
 
@@ -56,16 +67,15 @@ THROTTLE_SECONDS = 60
 SYSTEM_PROMPT = (
     "You are Novera's Guidance Agent. A new saliva reading has just arrived. "
     "Always start by calling run_screening_pipeline — never guess an organ or a "
-    "flag yourself. Based on its result: if the flag is medium or high, generate "
-    "a report and a voice script, and consider offering a clinic appointment "
-    "(this is always simulated, never a real send). If the flag is low, a report "
-    "is still useful but a clinic offer is usually unnecessary. A self-care plan "
-    "is worth generating when there's a specific area of concern to guide. If "
-    "validation failed or the pipeline could not produce a confident result, "
-    "call request_retest instead of guessing — do not call it after a "
-    "successful, confident screening. Use your judgment: you do not need to "
-    "call every tool every run. Stop once you've made a reasonable set of "
-    "decisions and reply with a short final summary."
+    "flag yourself. Based on its result: a report is worth generating for "
+    "medium/high flags, and often for low flags too. If validation failed or "
+    "the pipeline could not produce a confident result, call request_retest "
+    "instead of guessing — do not call it after a successful, confident "
+    "screening. You do not decide whether to contact the patient or how — "
+    "that is the WhatsApp Agent's job now, triggered automatically once you "
+    "finish. Use your judgment: you do not need to call every tool every run. "
+    "Stop once you've made a reasonable set of decisions and reply with a "
+    "short final summary."
 )
 
 
@@ -141,6 +151,22 @@ class _RunState:
 def _load_reading() -> Optional[dict[str, Any]]:
     row = reference_data.get_latest_row()
     return reference_data.row_to_reading(row) if row else None
+
+
+def _get_users_with_phone() -> list[dict[str, Any]]:
+    return db.fetch_all("SELECT id, email, name, phone FROM users WHERE phone <> ''")
+
+
+async def _dispatch_screening_completed(run_id: str, user: dict[str, Any], payload: dict[str, Any]) -> None:
+    """Isolated per-user task — one user's WhatsApp Agent run failing (or
+    hanging) never affects another's or this guidance run's own lifecycle,
+    since guidance_agent.run() has already moved on to its own run_end by
+    the time these are actually executing."""
+    try:
+        await asyncio.to_thread(whatsapp_agent.handle_trigger, "screening.completed", user, payload)
+    except Exception:
+        logger.exception("guidance_agent run %s: screening.completed dispatch failed for user_id=%s",
+                          run_id, user.get("id"))
 
 
 def _build_tools(state: _RunState) -> list:
@@ -281,74 +307,6 @@ def _build_tools(state: _RunState) -> list:
         return "Report generated successfully."
 
     @tool
-    async def generate_voice_script() -> str:
-        """Generate the spoken (text-to-speech) screening summary script for the
-        current reading."""
-        await _emit(state.run_id, "tool_voice", "start", "Generating voice script")
-        try:
-            reading = state.reading or await asyncio.to_thread(_load_reading)
-            state.reading = reading
-            if reading is None:
-                await _emit(state.run_id, "tool_voice", "error", "No reading available")
-                return "No reading available to generate a voice script from."
-            await asyncio.to_thread(content_llm.voice_agent, reading, "en")
-        except Exception as exc:
-            logger.exception("generate_voice_script failed")
-            await _emit(state.run_id, "tool_voice", "error", "Voice script generation failed")
-            return f"Voice script generation failed: {exc}"
-        state.actions.append("voice script generated")
-        state.action_tokens.append("voice_script")
-        await _emit(state.run_id, "tool_voice", "success", "Voice script generated")
-        return "Voice script generated successfully."
-
-    @tool
-    async def generate_self_care_plan() -> str:
-        """Generate a personalised diet/self-care plan from the current reading,
-        doctor context, and chat history. Best used when there's a specific area
-        of concern worth guiding the patient on."""
-        await _emit(state.run_id, "tool_selfcare", "start", "Generating self-care plan")
-        try:
-            reading = state.reading or await asyncio.to_thread(_load_reading)
-            state.reading = reading
-            if reading is None:
-                await _emit(state.run_id, "tool_selfcare", "error", "No reading available")
-                return "No reading available to generate a self-care plan from."
-            ctx = state.ctx if state.ctx is not None else await asyncio.to_thread(reference_data.get_context)
-            state.ctx = ctx
-            history = await asyncio.to_thread(reference_data.get_chat_history)
-            await asyncio.to_thread(content_llm.self_care_agent, reading, ctx, history, "en")
-        except Exception as exc:
-            logger.exception("generate_self_care_plan failed")
-            await _emit(state.run_id, "tool_selfcare", "error", "Self-care plan generation failed")
-            return f"Self-care plan generation failed: {exc}"
-        state.actions.append("self-care plan generated")
-        state.action_tokens.append("self_care_plan")
-        await _emit(state.run_id, "tool_selfcare", "success", "Self-care plan generated")
-        return "Self-care plan generated successfully."
-
-    @tool
-    async def offer_clinic_appointment() -> str:
-        """Offer the patient a clinic appointment. SAFETY: this always runs in
-        simulation mode — it never sends a real WhatsApp message or books a real
-        appointment, regardless of what you intend. Use it when the flag is
-        medium/high and a follow-up visit seems warranted."""
-        await _emit(state.run_id, "tool_whatsapp", "start", "Preparing appointment offer (simulated)")
-        try:
-            to = config.WHATSAPP_TO or "0000000000"
-            case_id = state.case_row["case_id"] if state.case_row else None
-            # simulate=True is hardcoded and unconditional — this call path must
-            # never send a real WhatsApp message (hard safety constraint).
-            await asyncio.to_thread(appointment_graph.send_offer, to, case_id, True)
-        except Exception as exc:
-            logger.exception("offer_clinic_appointment failed")
-            await _emit(state.run_id, "tool_whatsapp", "error", "Appointment offer simulation failed")
-            return f"Appointment offer simulation failed: {exc}"
-        state.actions.append("appointment offer simulated")
-        state.action_tokens.append("clinic_offer")
-        await _emit(state.run_id, "tool_whatsapp", "success", "Appointment offer simulated")
-        return "Appointment offer simulated successfully (no real message was sent)."
-
-    @tool
     async def request_retest(reason: str) -> str:
         """Flag the current case as needing a retest instead of guessing — use
         this only when validation failed or the screening pipeline could not
@@ -370,9 +328,6 @@ def _build_tools(state: _RunState) -> list:
     return [
         run_screening_pipeline,
         generate_report,
-        generate_voice_script,
-        generate_self_care_plan,
-        offer_clinic_appointment,
         request_retest,
     ]
 
@@ -533,6 +488,28 @@ async def run(reading_row: dict[str, Any]) -> None:  # noqa: ARG001 - see below
                             }
                         )
                         await asyncio.sleep(0.4)
+
+            if state.organ:
+                # Hand-off point (spec §2): screening finished, fire
+                # screening.completed for every registered user with a
+                # phone number, as independent background tasks — not
+                # awaited here, so this run's own throttle lock (see
+                # finally: _release() below) isn't held hostage by however
+                # long WhatsApp Agent's model loop takes per user. Screening
+                # data is still single-patient/global (Hassan's call,
+                # 2026-08-19), so every registered account gets the same
+                # trigger rather than this being scoped to "the" patient.
+                try:
+                    users = await asyncio.to_thread(_get_users_with_phone)
+                except Exception:
+                    logger.exception("guidance_agent run %s: failed to load users for screening.completed handoff", run_id)
+                    users = []
+                payload = {"case_id": state.case_row["case_id"] if state.case_row else None,
+                           "organ": state.organ, "flag": state.flag}
+                for user in users:
+                    asyncio.create_task(
+                        _dispatch_screening_completed(run_id, user, payload)
+                    )
 
         await ws.broadcast(
             {

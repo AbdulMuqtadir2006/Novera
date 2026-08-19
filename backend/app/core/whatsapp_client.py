@@ -93,6 +93,58 @@ def send_document(
         return {"delivered": False, "simulated": False, "reason": detail, "to": to}
 
 
+def send_template_message(
+    template_name: str,
+    variables: list[str],
+    to: Optional[str] = None,
+    lang_code: str = "en",
+    simulate: bool = False,
+) -> dict[str, Any]:
+    """Sends a pre-approved Meta message template — the only send mechanism
+    allowed for business-initiated messages outside the 24h customer-service
+    window (spec §5). `template_name` must exactly match a template already
+    created AND approved in Meta Business Manager, with a body that has as
+    many {{1}}, {{2}}... placeholders as `variables` has entries, in order —
+    this function does not create or validate templates, it only invokes an
+    already-approved one. If the named template doesn't exist/isn't approved
+    yet, Meta's API call fails and this degrades the same way send_message
+    does on any other failure (logged, simulated result returned) rather than
+    raising — see whatsapp_templates.py for the 5 templates this project
+    needs submitted for approval before proactive outreach can work outside
+    the 24h window."""
+    to = to or config.WHATSAPP_TO
+    if simulate or not config.WHATSAPP_ENABLED or not to:
+        reason = "simulate" if simulate else ("meta_not_configured" if not config.WHATSAPP_ENABLED else "no_recipient")
+        print(f"[whatsapp:simulated:{reason}] -> {to or '(no recipient)'}\n[template: {template_name}, vars={variables}]\n")
+        return {"delivered": False, "simulated": True, "reason": reason, "to": to, "template_name": template_name}
+
+    url = f"https://graph.facebook.com/{config.META_API_VERSION}/{config.META_PHONE_NUMBER_ID}/messages"
+    headers = {"Authorization": f"Bearer {config.META_WHATSAPP_TOKEN}", "Content-Type": "application/json"}
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": _normalize(to),
+        "type": "template",
+        "template": {
+            "name": template_name,
+            "language": {"code": lang_code},
+            "components": (
+                [{"type": "body", "parameters": [{"type": "text", "text": v} for v in variables]}]
+                if variables else []
+            ),
+        },
+    }
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        message_id = (data.get("messages") or [{}])[0].get("id")
+        return {"delivered": True, "simulated": False, "message_id": message_id, "to": to, "template_name": template_name}
+    except Exception as exc:
+        detail = getattr(getattr(exc, "response", None), "text", str(exc))
+        print(f"[whatsapp] template send failed ({template_name}): {detail}")
+        return {"delivered": False, "simulated": False, "reason": detail, "to": to, "template_name": template_name}
+
+
 def offer_message(case_id: Optional[str] = None) -> str:
     ref = f" (ref {case_id})" if case_id else ""
     return (

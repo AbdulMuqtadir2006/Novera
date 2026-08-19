@@ -224,3 +224,43 @@ END $$;
 ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_slot_start_key;
 CREATE UNIQUE INDEX IF NOT EXISTS appointments_slot_start_confirmed_uidx
     ON appointments (slot_start) WHERE status = 'confirmed';
+
+-- ---------------------------------------------------------------------------
+-- Autonomous WhatsApp Agent (added 2026-08-19) — see
+-- novera-whatsapp-autonomous-agent-spec.md. WhatsApp Agent gets its own
+-- proactive triggers (screening completed, appointment completed, meal/
+-- wellness check-ins) on top of replying to inbound messages.
+-- ---------------------------------------------------------------------------
+
+-- One post-visit follow-up per appointment, not per user — appointments
+-- stays the single source of truth for booking state (per booking.py's own
+-- docstring), so this is a column here rather than a duplicated status
+-- field on whatsapp_patient_context below.
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS followup_sent BOOLEAN NOT NULL DEFAULT false;
+
+-- Per-registered-user WhatsApp Agent memory: conversation state, the 24h
+-- send-window gate, and check-in/self-care tracking. Deliberately NOT a
+-- second copy of appointment status (see above) or the dashboard's
+-- self_care_plan/patient_context singletons (untouched, unrelated —
+-- those back the in-app dashboard, this backs WhatsApp conversations).
+-- Screening data itself stays single-patient/global for now (Hassan's
+-- call, 2026-08-19) — every registered user reads the same latest
+-- reading/screening_cases row; only the conversation state below is
+-- genuinely per-user.
+CREATE TABLE IF NOT EXISTS whatsapp_patient_context (
+    user_id                       INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    conversation_summary          TEXT NOT NULL DEFAULT '',
+    last_inbound_at               TIMESTAMPTZ,
+    last_outbound_at              TIMESTAMPTZ,
+    self_care_plan                TEXT,
+    self_care_plan_issued_at      TIMESTAMPTZ,
+    last_meal_checkin_at          TIMESTAMPTZ,
+    last_meal_checkin_response    TEXT,
+    last_wellness_checkin_at      TIMESTAMPTZ,
+    -- Real cadence numbers are a product decision, not a technical one (see
+    -- the spec's §8) — 3 is a placeholder default, configurable per row
+    -- without a code change once a real number is decided.
+    wellness_checkin_cadence_days INTEGER NOT NULL DEFAULT 3,
+    reported_symptoms             JSONB NOT NULL DEFAULT '[]'::jsonb,
+    updated_at                    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
