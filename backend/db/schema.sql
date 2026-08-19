@@ -79,6 +79,10 @@ CREATE TABLE IF NOT EXISTS readings (
 CREATE INDEX IF NOT EXISTS idx_readings_timestamp
     ON readings ("timestamp" DESC, id DESC);
 
+-- Multi-tenant since 2026-08-19 (see the migration further down this file,
+-- which drops the id=1 singleton constraint and promotes user_id to the
+-- real key) — no more global seed row here. reference_data.get_context()
+-- creates a row per-user on first access instead.
 CREATE TABLE IF NOT EXISTS patient_context (
     id           INTEGER PRIMARY KEY CHECK (id = 1),
     diagnosis    TEXT DEFAULT '',
@@ -86,10 +90,6 @@ CREATE TABLE IF NOT EXISTS patient_context (
     notes        TEXT DEFAULT '',
     updated_at   TIMESTAMPTZ
 );
-
-INSERT INTO patient_context (id, diagnosis, medications, notes, updated_at)
-VALUES (1, '', '', '', now())
-ON CONFLICT (id) DO NOTHING;
 
 -- Single-row table tracking the ESP32 sensor node's live WiFi status and
 -- whether the dashboard has requested an on-demand sample.
@@ -104,18 +104,16 @@ INSERT INTO device_state (id, ssid, last_seen, pending_sample)
 VALUES (1, NULL, NULL, false)
 ON CONFLICT (id) DO NOTHING;
 
--- Persisted diet/self-care plan (single row) — regenerating from scratch and
--- "show me what I already have" are now different operations (see
+-- Persisted diet/self-care plan — regenerating from scratch and "show me
+-- what I already have" are now different operations (see
 -- routers/content_agents.py's `force` flag). NULL until generated once.
+-- Multi-tenant since 2026-08-19 (see the migration further down this file)
+-- — no more global seed row here, one row is upserted per-user on demand.
 CREATE TABLE IF NOT EXISTS self_care_plan (
     id           INTEGER PRIMARY KEY CHECK (id = 1),
     plan_json    JSONB,
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
-INSERT INTO self_care_plan (id, plan_json, updated_at)
-VALUES (1, NULL, now())
-ON CONFLICT (id) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS chat_messages (
     id          SERIAL PRIMARY KEY,
