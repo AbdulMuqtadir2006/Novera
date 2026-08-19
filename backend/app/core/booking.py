@@ -95,16 +95,20 @@ def reschedule_booking(
     return find_and_book_slot(user_id=user_id, phone=phone, channel=channel)
 
 
-def list_bookings(limit: int = 50) -> list[dict[str, Any]]:
+def list_bookings_for_user(user_id: int, limit: int = 50) -> list[dict[str, Any]]:
+    """Multi-tenant: this patient's own booking history (past and future),
+    most recent first — see routers/appointments.py's GET /appointment/bookings.
+    An unscoped version of this used to return every patient's bookings to
+    any authenticated caller."""
     rows = db.fetch_all(
         """
         SELECT id, slot_start, reason, clinic, branch, channel, booked_at
         FROM appointments
-        WHERE status = 'confirmed'
+        WHERE status = 'confirmed' AND user_id = %s
         ORDER BY slot_start DESC
         LIMIT %s
         """,
-        (limit,),
+        (user_id, limit),
     )
     return [_row_to_booking(row) for row in rows]
 

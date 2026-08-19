@@ -74,6 +74,13 @@ def create_user(name: str, email: str, password: str, phone: str) -> dict:
     existing = db.fetch_one("SELECT id FROM users WHERE email = %s", (norm_email,))
     if existing:
         raise AuthError("An account with this email already exists")
+    # A phone can only ever resolve to one account for WhatsApp lookup
+    # (_find_user_by_phone) — without this check, a second signup with the
+    # same number would make phone->account resolution ambiguous and could
+    # leak one patient's data into another's WhatsApp conversation.
+    existing_phone = db.fetch_one("SELECT id FROM users WHERE phone = %s", (norm_phone,))
+    if existing_phone:
+        raise AuthError("An account with this phone number already exists")
 
     salt, pass_hash = _hash_password(password)
     row = db.fetch_one(

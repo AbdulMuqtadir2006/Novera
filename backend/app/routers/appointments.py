@@ -44,4 +44,4 @@ def appointment_reply(body: ReplyReq, user: dict = Depends(require_user)):
 
 @router.get("/appointment/bookings")
 def bookings(user: dict = Depends(require_user)):
-    return {"bookings": booking.list_bookings()}
+    return {"bookings": booking.list_bookings_for_user(user["id"])}

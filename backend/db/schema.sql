@@ -141,6 +141,24 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE INDEX IF NOT EXISTS idx_users_phone
     ON users (phone);
 
+-- A duplicate phone across two accounts makes _find_user_by_phone's lookup
+-- ambiguous (whichever row Postgres happens to return "wins" the WhatsApp
+-- thread) — app/security.py now rejects new signups that would collide, and
+-- this is the DB-level backstop. Guarded: only add the constraint if no
+-- collision already exists, so this migration can never fail/break a
+-- deploy the way an unconditional CREATE UNIQUE INDEX could on data that
+-- predates the app-level check.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM users WHERE phone <> '' GROUP BY phone HAVING COUNT(*) > 1
+    ) THEN
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone_unique ON users (phone) WHERE phone <> '';
+    ELSE
+        RAISE NOTICE 'idx_users_phone_unique skipped: duplicate phone(s) already exist on users';
+    END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS sessions (
     token       TEXT PRIMARY KEY,
     user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

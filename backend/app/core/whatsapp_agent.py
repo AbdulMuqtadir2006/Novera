@@ -303,12 +303,12 @@ def _build_tools(user: Optional[dict[str, Any]], phone: str, lang: str, within_w
             already answers in text."""
             if not user:
                 return "No account is linked to this phone number, so there's no report to send."
-            row = reference_data.get_latest_row()
+            row = reference_data.get_latest_row(user["id"])
             if not row:
                 return "This patient has no biomarker readings on file yet, so there's no report to generate."
             reading = reference_data.row_to_reading(row)
-            ctx = reference_data.get_context()
-            report_data = content_llm.report_agent(reading, ctx, lang="en")
+            ctx = reference_data.get_context(user["id"])
+            report_data = content_llm.report_agent(reading, ctx, user["id"], lang="en")
             pdf_bytes = report_pdf.build_report_pdf(reading, report_data)
             result = whatsapp_client.send_document(
                 pdf_bytes, filename="novera-screening-report.pdf",
@@ -331,7 +331,7 @@ def _build_tools(user: Optional[dict[str, Any]], phone: str, lang: str, within_w
             attached; frame it as a written spoken-style summary."""
             if not user:
                 return "No account is linked to this phone number, so there's no summary to send."
-            row = reference_data.get_latest_row()
+            row = reference_data.get_latest_row(user["id"])
             if not row:
                 return "This patient has no biomarker readings on file yet."
             reading = reference_data.row_to_reading(row)
