@@ -182,7 +182,7 @@ def get_engine() -> ScoringEngine:
 # screening_cases persistence — ported from novera.py's Database class.
 # ---------------------------------------------------------------------------
 
-def add_reading(ph: float, urea_mg_dl: float, creatinine_umol_l: float, temperature_c: float) -> str:
+def add_reading(user_id: int, ph: float, urea_mg_dl: float, creatinine_umol_l: float, temperature_c: float) -> str:
     """Insert one NEW screening case and generate the next N-number case ID."""
     with db.get_conn() as conn:
         with conn.transaction():
@@ -197,30 +197,31 @@ def add_reading(ph: float, urea_mg_dl: float, creatinine_umol_l: float, temperat
             case_id = f"N{next_number:03d}"
             conn.execute(
                 """
-                INSERT INTO screening_cases (case_id, ph, urea_mg_dl, creatinine_umol_l, temperature_c, status)
-                VALUES (%s, %s, %s, %s, %s, 'NEW')
+                INSERT INTO screening_cases (user_id, case_id, ph, urea_mg_dl, creatinine_umol_l, temperature_c, status)
+                VALUES (%s, %s, %s, %s, %s, %s, 'NEW')
                 """,
-                (case_id, ph, urea_mg_dl, creatinine_umol_l, temperature_c),
+                (user_id, case_id, ph, urea_mg_dl, creatinine_umol_l, temperature_c),
             )
     return case_id
 
 
-def claim_new_case_from_latest_reading() -> dict[str, Any] | None:
+def claim_new_case_from_latest_reading(user_id: int) -> dict[str, Any] | None:
     """Shared by the manual /predict-organ(/stream) endpoints (routers/screening.py)
-    and the autonomous guidance agent (core/guidance_agent.py): turn the dashboard's
+    and the autonomous guidance agent (core/guidance_agent.py): turn this user's
     latest `readings` row into a freshly claimed 'PROCESSING' screening_cases row.
 
     Returns None (rather than raising) when there's no reading yet, since the two
     callers want different behavior for that case (HTTP 404 vs. silently skipping
     an orchestrator run) — the caller decides what "no reading" means for it.
     """
-    row = reference_data.get_latest_row()
+    row = reference_data.get_latest_row(user_id)
     if not row:
         return None
     reading = reference_data.row_to_reading(row)
     m = reading["metrics"]
 
     case_id = add_reading(
+        user_id=user_id,
         ph=float(m["ph"]["value"]),
         urea_mg_dl=float(m["urea"]["value"]),
         creatinine_umol_l=float(m["creatinine"]["value"]) * CREATININE_MGDL_TO_UMOLL,
@@ -259,24 +260,29 @@ def claim_reading(reading_id: int) -> bool:
         return cur.rowcount == 1
 
 
-def get_latest_screening_flag() -> Optional[dict[str, Any]]:
-    """The flag (low/medium/high) for the most recently COMPLETED screening
-    case — used by the WhatsApp Agent's outreach guarantee (spec §6), which
-    needs to know whether the latest case was medium/high without recomputing
-    the whole pipeline. `flag` itself is only ever stored inside
-    decision_audit.specialist_results_json (per-organ), never as its own
-    column on screening_cases, so this re-derives it the same way
-    guidance_agent.py does at persist-time: look up the specialist result
-    whose organ matches the final prediction."""
+def get_latest_screening_flag(user_id: int) -> Optional[dict[str, Any]]:
+    """The flag (low/medium/high) for this user's most recently COMPLETED
+    screening case — used by the WhatsApp Agent's outreach guarantee (spec
+    §6), which needs to know whether the latest case was medium/high without
+    recomputing the whole pipeline. Multi-tenant (2026-08-19): scoped to
+    user_id — without this, a medium/high flag belonging to a different
+    patient could force an appointment-offer message to the wrong person.
+    `flag` itself is only ever stored inside decision_audit.
+    specialist_results_json (per-organ), never as its own column on
+    screening_cases, so this re-derives it the same way guidance_agent.py
+    does at persist-time: look up the specialist result whose organ matches
+    the final prediction."""
     row = db.fetch_one(
         """
         SELECT da.final_prediction, da.specialist_results_json, da.final_confidence,
                sc.case_id
         FROM decision_audit da
         JOIN screening_cases sc ON sc.id = da.reading_id
+        WHERE sc.user_id = %s
         ORDER BY da.id DESC
         LIMIT 1
-        """
+        """,
+        (user_id,),
     )
     if not row:
         return None

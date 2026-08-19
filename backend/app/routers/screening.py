@@ -11,13 +11,13 @@ from ..deps import require_user
 router = APIRouter()
 
 
-def _claim_new_screening_case():
-    """Shared setup for both /predict-organ and /predict-organ/stream: turn the
-    dashboard's latest reading into a claimed 'PROCESSING' screening_cases row.
-    Thin HTTP wrapper over scoring.claim_new_case_from_latest_reading(), which
-    is also reused (unmodified) by the autonomous guidance agent — see
+def _claim_new_screening_case(user_id: int):
+    """Shared setup for both /predict-organ and /predict-organ/stream: turn
+    this user's latest reading into a claimed 'PROCESSING' screening_cases
+    row. Thin HTTP wrapper over scoring.claim_new_case_from_latest_reading(),
+    which is also reused (unmodified) by the autonomous guidance agent — see
     core/guidance_agent.py and core/scoring.py's docstring on that function."""
-    case_row = scoring.claim_new_case_from_latest_reading()
+    case_row = scoring.claim_new_case_from_latest_reading(user_id)
     if not case_row:
         raise HTTPException(status_code=404, detail="no readings")
     return case_row
@@ -27,9 +27,9 @@ def _claim_new_screening_case():
 def predict_organ(user: dict = Depends(require_user)):
     """Deep AI analysis: runs the deterministic screening pipeline
     (reference-range score + similarity score + exactly one OpenRouter call,
-    req 5) on the dashboard's latest reading, and persists it as a real
+    req 5) on this user's latest reading, and persists it as a real
     screening_cases row so future similarity scoring benefits from it."""
-    case_row = _claim_new_screening_case()
+    case_row = _claim_new_screening_case(user["id"])
     result = screening_llm.process_case(case_row)
 
     if result["status"] != "PROCESSED":
@@ -54,7 +54,7 @@ def predict_organ_stream(user: dict = Depends(require_user)):
     by genuine backend progress instead of a decorative timer loop. A plain
     POST (not a native EventSource GET) so the existing Bearer-token fetch
     helper works unchanged; the frontend reads the streamed body directly."""
-    case_row = _claim_new_screening_case()
+    case_row = _claim_new_screening_case(user["id"])
 
     def event_source():
         for event in screening_llm.process_case_stream(case_row):

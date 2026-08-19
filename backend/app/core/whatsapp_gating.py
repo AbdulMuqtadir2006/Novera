@@ -26,10 +26,12 @@ def _hours_since(ts: Optional[datetime]) -> Optional[float]:
 
 
 def enforce_outreach_guarantee(user: dict[str, Any]) -> bool:
-    """Called for a specific registered user (one per phone number texting
-    the bot — see novera-project memory on the single-patient/multi-account
-    scope decision). Returns True if a forced appointment offer was sent."""
-    latest = scoring.get_latest_screening_flag()
+    """Called for a specific registered user. Multi-tenant (2026-08-19):
+    checks THIS user's own latest screening flag only — before this fix, a
+    medium/high flag belonging to a different patient could have forced an
+    appointment-offer message to the wrong person. Returns True if a forced
+    appointment offer was sent."""
+    latest = scoring.get_latest_screening_flag(user["id"])
     if not latest or latest["flag"] not in ("medium", "high"):
         return False
 

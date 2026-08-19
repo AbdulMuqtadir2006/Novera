@@ -241,12 +241,15 @@ ALTER TABLE appointments ADD COLUMN IF NOT EXISTS followup_sent BOOLEAN NOT NULL
 -- Per-registered-user WhatsApp Agent memory: conversation state, the 24h
 -- send-window gate, and check-in/self-care tracking. Deliberately NOT a
 -- second copy of appointment status (see above) or the dashboard's
--- self_care_plan/patient_context singletons (untouched, unrelated —
--- those back the in-app dashboard, this backs WhatsApp conversations).
--- Screening data itself stays single-patient/global for now (Hassan's
--- call, 2026-08-19) — every registered user reads the same latest
--- reading/screening_cases row; only the conversation state below is
--- genuinely per-user.
+-- self_care_plan/patient_context tables (backed by a genuinely different
+-- self-care plan than this one — this is what WhatsApp Agent generates
+-- in-conversation, that's what the dashboard shows; both per-user as of
+-- the multi-tenant migration below, added same day).
+-- CORRECTION (2026-08-19, later same day): the note that used to be here
+-- said screening data stays global/single-patient — that was reversed
+-- within hours. See the multi-tenant isolation migration further down
+-- this file; readings/screening_cases/patient_context/self_care_plan/
+-- chat_messages are all per-user now.
 CREATE TABLE IF NOT EXISTS whatsapp_patient_context (
     user_id                       INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     conversation_summary          TEXT NOT NULL DEFAULT '',
@@ -264,3 +267,69 @@ CREATE TABLE IF NOT EXISTS whatsapp_patient_context (
     reported_symptoms             JSONB NOT NULL DEFAULT '[]'::jsonb,
     updated_at                    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ---------------------------------------------------------------------------
+-- Multi-tenant data isolation (added 2026-08-19, later same day as the
+-- WhatsApp Agent work above). Every logged-in user used to see the exact
+-- same readings/screening/self-care/doctor-notes data as every other user —
+-- a real data-isolation bug for a health app, not cosmetic. Fixed here.
+--
+-- One physical shared ESP32 exists (not one-per-patient), so a reading has
+-- no inherent owner — device_state.pending_sample_user_id (below) records
+-- who armed the device for the next capture; POST /readings stamps that
+-- onto the new row, then clears it. An unrequested/autonomous capture (the
+-- firmware's periodic 5-minute auto-send) lands with user_id = NULL —
+-- orphaned, invisible on every dashboard. Accepted, intentional consequence
+-- of the shared-device model, not a bug.
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE readings ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_readings_user_id ON readings (user_id, "timestamp" DESC, id DESC);
+
+ALTER TABLE screening_cases ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_screening_cases_user_id ON screening_cases (user_id, id DESC);
+
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS idx_chat_messages_user_id ON chat_messages (user_id, id ASC);
+
+ALTER TABLE device_state ADD COLUMN IF NOT EXISTS pending_sample_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+
+-- patient_context / self_care_plan: were singletons (id INTEGER PRIMARY KEY
+-- CHECK (id = 1)) — that PRIMARY KEY must actually be dropped, not just
+-- left alone, or it's physically impossible to ever insert a second
+-- per-user row regardless of what user_id says. Dropped by catalog lookup
+-- (not a guessed constraint name) so this can't silently no-op. The
+-- existing single id=1 row in each table becomes permanently orphaned
+-- (user_id IS NULL) — same accepted consequence as readings above, not
+-- backfilled to a guessed owner.
+DO $$
+DECLARE r RECORD;
+BEGIN
+    FOR r IN SELECT conname FROM pg_constraint WHERE conrelid = 'patient_context'::regclass AND contype IN ('p', 'c')
+    LOOP
+        EXECUTE 'ALTER TABLE patient_context DROP CONSTRAINT ' || quote_ident(r.conname);
+    END LOOP;
+END $$;
+ALTER TABLE patient_context ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'patient_context_user_id_key') THEN
+        ALTER TABLE patient_context ADD CONSTRAINT patient_context_user_id_key UNIQUE (user_id);
+    END IF;
+END $$;
+
+DO $$
+DECLARE r RECORD;
+BEGIN
+    FOR r IN SELECT conname FROM pg_constraint WHERE conrelid = 'self_care_plan'::regclass AND contype IN ('p', 'c')
+    LOOP
+        EXECUTE 'ALTER TABLE self_care_plan DROP CONSTRAINT ' || quote_ident(r.conname);
+    END LOOP;
+END $$;
+ALTER TABLE self_care_plan ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'self_care_plan_user_id_key') THEN
+        ALTER TABLE self_care_plan ADD CONSTRAINT self_care_plan_user_id_key UNIQUE (user_id);
+    END IF;
+END $$;

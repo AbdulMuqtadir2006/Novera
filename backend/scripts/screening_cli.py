@@ -80,6 +80,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("init-db", help="Create tables + seed reference ranges.")
 
     add_p = sub.add_parser("add-reading", help="Insert one NEW screening case.")
+    add_p.add_argument("--user-id", type=int, default=None, help="Owning user id (multi-tenant, 2026-08-19) — omit for an orphaned/unowned test case")
     add_p.add_argument("--ph", type=float, required=True)
     add_p.add_argument("--urea", type=float, required=True, dest="urea_mg_dl")
     add_p.add_argument("--creatinine", type=float, required=True, dest="creatinine_umol_l")
@@ -109,7 +110,7 @@ def main() -> int:
             db.init_schema()
             print(json.dumps({"status": "DATABASE_READY"}, indent=2))
         elif args.command == "add-reading":
-            case_id = scoring.add_reading(args.ph, args.urea_mg_dl, args.creatinine_umol_l, args.temperature_c)
+            case_id = scoring.add_reading(args.user_id, args.ph, args.urea_mg_dl, args.creatinine_umol_l, args.temperature_c)
             print(json.dumps({"status": "NEW_READING_ADDED", "case_id": case_id}, indent=2))
         elif args.command == "process":
             print(json.dumps(screening_llm.process_latest(), indent=2, ensure_ascii=False))

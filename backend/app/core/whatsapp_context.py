@@ -4,10 +4,13 @@ novera-whatsapp-autonomous-agent-spec.md §3.4.
 Deliberately narrow: conversation state, the 24h send-window timestamps, and
 check-in/self-care tracking. NOT a second copy of appointment status
 (appointments is the single source of truth, see booking.py) and NOT the
-dashboard's self_care_plan/patient_context singletons (untouched, back a
-different feature). Screening data stays single-patient/global for now
-(Hassan's call, 2026-08-19) — every row here shares the same latest
-reading/screening_cases data; only the fields below are genuinely per-user.
+dashboard's self_care_plan/patient_context tables (a genuinely different
+self-care plan than this one — this is what gets generated in-conversation
+here, that's what the dashboard shows). CORRECTED 2026-08-19 (same day,
+later): screening/reading data used to be described as staying single-
+patient/global here — that was reversed within hours. All of
+readings/screening_cases/patient_context/self_care_plan/chat_messages are
+per-user now (see db/schema.sql's multi-tenant migration).
 """
 from __future__ import annotations
 

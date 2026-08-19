@@ -202,7 +202,7 @@ def voice_agent(reading: dict[str, Any], lang: str = "en") -> dict[str, Any]:
         return fallbacks.voice(reading, lang)
 
 
-def report_agent(reading: dict[str, Any], ctx: dict[str, Any], lang: str = "en") -> dict[str, Any]:
+def report_agent(reading: dict[str, Any], ctx: dict[str, Any], user_id: int, lang: str = "en") -> dict[str, Any]:
     @tool
     def get_reading_history(days: int = 30) -> str:
         """Look up this patient's past biomarker readings (oldest to newest) to check
@@ -210,7 +210,7 @@ def report_agent(reading: dict[str, Any], ctx: dict[str, Any], lang: str = "en")
         how far back to look (default 30). Optional — only call this if a trend would
         actually change what's worth telling the patient (e.g. a borderline value that's
         been climbing); don't call it if the latest reading alone is enough."""
-        return _describe_history(reference_data.get_reading_history(days))
+        return _describe_history(reference_data.get_reading_history(user_id, days))
 
     try:
         out = agentic_structured_call(
@@ -234,19 +234,24 @@ def report_agent(reading: dict[str, Any], ctx: dict[str, Any], lang: str = "en")
         return fallbacks.report(reading, lang)
 
 
-def _self_care_plan_exists() -> bool:
-    row = db.fetch_one("SELECT plan_json FROM self_care_plan WHERE id = 1")
+def _self_care_plan_exists(user_id: int) -> bool:
+    row = db.fetch_one("SELECT plan_json FROM self_care_plan WHERE user_id = %s", (user_id,))
     return bool(row and row.get("plan_json"))
 
 
-def _persist_self_care_plan(data: dict[str, Any]) -> None:
+def _persist_self_care_plan(user_id: int, data: dict[str, Any]) -> None:
+    """Upsert (multi-tenant, 2026-08-19) — self_care_plan is keyed by user_id
+    now (UNIQUE constraint), not the old id=1 singleton."""
     db.execute(
-        "UPDATE self_care_plan SET plan_json = %s, updated_at = now() WHERE id = 1",
-        (json.dumps(data, ensure_ascii=False),),
+        """
+        INSERT INTO self_care_plan (user_id, plan_json, updated_at) VALUES (%s, %s, now())
+        ON CONFLICT (user_id) DO UPDATE SET plan_json = EXCLUDED.plan_json, updated_at = now()
+        """,
+        (user_id, json.dumps(data, ensure_ascii=False)),
     )
 
 
-def self_care_agent(reading: dict[str, Any], ctx: dict[str, Any], chat_history: list[dict[str, Any]], lang: str = "en") -> dict[str, Any]:
+def self_care_agent(reading: dict[str, Any], ctx: dict[str, Any], chat_history: list[dict[str, Any]], user_id: int, lang: str = "en") -> dict[str, Any]:
     convo = "\n".join(f"{'Patient' if m['role'] == 'user' else 'Assistant'}: {m['content']}" for m in (chat_history or []))
     try:
         out = structured_json_call(
@@ -274,15 +279,15 @@ def self_care_agent(reading: dict[str, Any], ctx: dict[str, Any], chat_history: 
         data["source"] = "ai"
         if not data.get("nutrition"):
             data["nutrition"] = fallbacks.self_care(reading, lang)["nutrition"]
-        _persist_self_care_plan(data)
+        _persist_self_care_plan(user_id, data)
         return data
     except LLMError as exc:
         print(f"[self_care] fallback: {exc}")
         data = fallbacks.self_care(reading, lang)
         # Don't clobber a plan the patient may be actively editing via chat
         # with a degraded fallback — only persist if nothing was ever saved.
-        if not _self_care_plan_exists():
-            _persist_self_care_plan(data)
+        if not _self_care_plan_exists(user_id):
+            _persist_self_care_plan(user_id, data)
         return data
 
 
@@ -372,10 +377,18 @@ DIETARY_CONFLICT_RULES: dict[str, dict[str, Any]] = {
 }
 
 
-def _persist_context_update(diagnosis: str, medications: str, notes: str) -> None:
+def _persist_context_update(user_id: int, diagnosis: str, medications: str, notes: str) -> None:
+    """Upsert (multi-tenant, 2026-08-19) — patient_context is keyed by
+    user_id now (UNIQUE constraint), not the old id=1 singleton."""
     db.execute(
-        "UPDATE patient_context SET diagnosis = %s, medications = %s, notes = %s, updated_at = %s WHERE id = 1",
-        (diagnosis, medications, notes, datetime.now(timezone.utc)),
+        """
+        INSERT INTO patient_context (user_id, diagnosis, medications, notes, updated_at)
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (user_id) DO UPDATE SET
+            diagnosis = EXCLUDED.diagnosis, medications = EXCLUDED.medications,
+            notes = EXCLUDED.notes, updated_at = EXCLUDED.updated_at
+        """,
+        (user_id, diagnosis, medications, notes, datetime.now(timezone.utc)),
     )
 
 
@@ -391,7 +404,7 @@ def _merge_context_field(existing: str, new_value: str) -> str:
     return f"{existing}; {new_value}"
 
 
-def _build_chat_tools(flags: dict[str, bool]) -> list:
+def _build_chat_tools(flags: dict[str, bool], user_id: int) -> list:
     @tool
     def update_diet_plan_field(meal: str, new_text: str) -> str:
         """Apply a targeted edit to ONE meal/section of the patient's saved diet
@@ -404,7 +417,7 @@ def _build_chat_tools(flags: dict[str, bool]) -> list:
         meal_key = (meal or "").strip().lower()
         if meal_key not in DIET_PLAN_FIELDS:
             return f"Unknown meal '{meal}'. Must be one of: {', '.join(sorted(DIET_PLAN_FIELDS))}."
-        row = db.fetch_one("SELECT plan_json FROM self_care_plan WHERE id = 1")
+        row = db.fetch_one("SELECT plan_json FROM self_care_plan WHERE user_id = %s", (user_id,))
         plan = row.get("plan_json") if row else None
         if isinstance(plan, str):
             plan = json.loads(plan)
@@ -414,8 +427,11 @@ def _build_chat_tools(flags: dict[str, bool]) -> list:
         diet[meal_key] = new_text
         plan["dietPlan"] = diet
         db.execute(
-            "UPDATE self_care_plan SET plan_json = %s, updated_at = now() WHERE id = 1",
-            (json.dumps(plan, ensure_ascii=False),),
+            """
+            INSERT INTO self_care_plan (user_id, plan_json, updated_at) VALUES (%s, %s, now())
+            ON CONFLICT (user_id) DO UPDATE SET plan_json = EXCLUDED.plan_json, updated_at = now()
+            """,
+            (user_id, json.dumps(plan, ensure_ascii=False)),
         )
         flags["plan_changed"] = True
         return f"Saved — {meal_key} is now: {new_text}"
@@ -431,7 +447,7 @@ def _build_chat_tools(flags: dict[str, bool]) -> list:
         field_key = (field or "").strip().lower()
         if field_key not in CONTEXT_FIELDS:
             return f"Unknown field '{field}'. Must be one of: {', '.join(sorted(CONTEXT_FIELDS))}."
-        current = reference_data.get_context()
+        current = reference_data.get_context(user_id)
         merged = _merge_context_field(current.get(field_key, ""), value)
         next_ctx = {
             "diagnosis": current.get("diagnosis", ""),
@@ -439,7 +455,7 @@ def _build_chat_tools(flags: dict[str, bool]) -> list:
             "notes": current.get("notes", ""),
         }
         next_ctx[field_key] = merged
-        _persist_context_update(next_ctx["diagnosis"], next_ctx["medications"], next_ctx["notes"])
+        _persist_context_update(user_id, next_ctx["diagnosis"], next_ctx["medications"], next_ctx["notes"])
         flags["context_changed"] = True
         return f"Saved — {field_key} is now: {merged}"
 
@@ -479,7 +495,7 @@ def _build_chat_tools(flags: dict[str, bool]) -> list:
     return [update_diet_plan_field, update_patient_context, lookup_food_nutrition, check_dietary_conflict]
 
 
-def chat_agent(messages: list[dict[str, Any]], reading: dict[str, Any] | None, ctx: dict[str, Any], lang: str = "en") -> dict[str, Any]:
+def chat_agent(messages: list[dict[str, Any]], reading: dict[str, Any] | None, ctx: dict[str, Any], user_id: int, lang: str = "en") -> dict[str, Any]:
     """NOVERA's chat coach — a real tool-calling agent (not a single structured
     call): it can make targeted, persisted edits (update_patient_context,
     update_diet_plan_field) using lookup_food_nutrition/check_dietary_conflict
@@ -491,7 +507,7 @@ def chat_agent(messages: list[dict[str, Any]], reading: dict[str, Any] | None, c
     convo = "\n".join(f"{'Patient' if m['role'] == 'user' else 'Assistant'}: {m['content']}" for m in messages)
     reading_txt = _describe_reading(reading) if reading else "No reading available."
     flags = {"context_changed": False, "plan_changed": False}
-    tools = _build_chat_tools(flags)
+    tools = _build_chat_tools(flags, user_id)
     tool_map = {t.name: t for t in tools}
 
     system = (
@@ -555,7 +571,7 @@ def chat_agent(messages: list[dict[str, Any]], reading: dict[str, Any] | None, c
         print(f"[chat] fallback: {exc}")
         data = fallbacks.chat(messages, ctx, lang)
         if data.get("contextChanged"):
-            _persist_context_update(data.get("diagnosis", ""), data.get("medications", ""), data.get("notes", ""))
+            _persist_context_update(user_id, data.get("diagnosis", ""), data.get("medications", ""), data.get("notes", ""))
         return {
             "reply": data["reply"],
             "source": data["source"],

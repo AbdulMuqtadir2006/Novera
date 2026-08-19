@@ -20,7 +20,7 @@ def get_clinic(user: dict = Depends(require_user)):
 def appointment_offer(body: OfferReq, user: dict = Depends(require_user)):
     phone = user.get("phone") or body.to
     to = normalize_phone(phone) if phone else None
-    case_row = db.fetch_one("SELECT case_id FROM screening_cases ORDER BY id DESC LIMIT 1")
+    case_row = db.fetch_one("SELECT case_id FROM screening_cases WHERE user_id = %s ORDER BY id DESC LIMIT 1", (user["id"],))
     case_id = case_row["case_id"] if case_row else None
     try:
         result = appointment_graph.send_offer(to=to, case_id=case_id, simulate=body.simulate)

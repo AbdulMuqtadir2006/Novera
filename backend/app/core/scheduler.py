@@ -3,11 +3,11 @@ without something checking time independently of any request, the WhatsApp
 Agent has no way to notice "the appointment passed" or "it's check-in time".
 Runs continuously as an asyncio task started at app boot (see main.py).
 
-Scope note (Hassan's call, 2026-08-19): screening data stays single-patient/
-global, but there can be multiple *registered accounts* independently
-texting the bot (family members, testers) — so "patients" below means
-"every registered user with a phone number", each with their own
-WhatsApp Agent conversation/check-in state, not multiple physical patients.
+Scope note (updated 2026-08-19, later same day): every registered account
+(family members, testers, etc.) has its own screening/reading data now (see
+db/schema.sql's multi-tenant migration) as well as its own WhatsApp Agent
+conversation/check-in state — "patients" below means "every registered user
+with a phone number," each independently.
 """
 from __future__ import annotations
 

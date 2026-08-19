@@ -43,6 +43,7 @@ from . import (
     whatsapp_gating,
     whatsapp_templates,
 )
+from .device_control import arm_device_for_user
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,7 @@ _TOOL_TO_NODE = {
     "send_meal_checkin": "wa_tool_checkin",
     "send_wellness_checkin": "wa_tool_checkin",
     "update_patient_context": "wa_tool_memory",
+    "request_sensor_reading": "wa_tool_facts",
 }
 
 
@@ -104,21 +106,27 @@ def _find_user_by_phone(phone: str) -> Optional[dict[str, Any]]:
 
 
 def _gather_patient_facts(user: Optional[dict[str, Any]]) -> dict[str, Any]:
-    """Only real, retrieved data — nothing here is generated."""
-    latest_row = reference_data.get_latest_row()
+    """Only real, retrieved data — nothing here is generated. Multi-tenant
+    (2026-08-19): every read below is scoped to this specific user_id — an
+    unregistered/no-user case returns nothing at all rather than falling
+    back to someone else's data."""
+    if not user:
+        return {"reading": None, "context": None, "upcoming_appointments": [], "latest_screening": None, "wa_context": None}
+    latest_row = reference_data.get_latest_row(user["id"])
     reading = reference_data.row_to_reading(latest_row) if latest_row else None
-    context = reference_data.get_context()
-    upcoming = booking.list_upcoming_for_user(user["id"]) if user else []
+    context = reference_data.get_context(user["id"])
+    upcoming = booking.list_upcoming_for_user(user["id"])
     latest_screening = db.fetch_one(
         """
         SELECT case_id, status, ai_prediction, ai_confidence, ai_reason
         FROM screening_cases
-        WHERE status = 'COMPLETED'
+        WHERE status = 'COMPLETED' AND user_id = %s
         ORDER BY id DESC
         LIMIT 1
-        """
+        """,
+        (user["id"],),
     )
-    wa_context = whatsapp_context.get_or_create(user["id"]) if user else None
+    wa_context = whatsapp_context.get_or_create(user["id"])
     return {
         "reading": reading,
         "context": context,
@@ -418,12 +426,29 @@ def _build_tools(user: Optional[dict[str, Any]], phone: str, lang: str, within_w
             return "Nothing was provided to save."
         return "Patient context updated."
 
+    @tool
+    def request_sensor_reading() -> str:
+        """Arm the shared NOVERA sensor device for THIS patient's next
+        capture, and tell them to go use it now. Use this when
+        get_patient_facts shows this registered patient has zero readings on
+        file — especially right after they've just registered — or whenever
+        they ask how to take a reading. There is only one physical device
+        shared across patients, so the reading only counts as theirs if
+        armed this way first; mention that in your reply (e.g. "go ahead and
+        use the device now — it's shared, so I've reserved the next reading
+        for your account")."""
+        if not user:
+            return "No account is linked to this phone number — they need to register first."
+        arm_device_for_user(user["id"])
+        return "Device armed for this patient — their next capture on the shared sensor will be linked to their account."
+
     tools += [
         send_appointment_offer,
         send_post_appointment_followup,
         send_meal_checkin,
         send_wellness_checkin,
         update_patient_context,
+        request_sensor_reading,
     ]
     return tools
 
@@ -483,13 +508,17 @@ def _system_prompt(user: Optional[dict[str, Any]], lang: str, trigger: str) -> s
         f"{restraint_note}\n\n"
         "You have tools to look up this patient's real facts, book/cancel/reschedule a REAL clinic "
         "appointment, send their report/a spoken-style summary, send proactive outreach messages "
-        "(appointment offers, follow-ups, meal/wellness check-ins), and write back what you learn into "
-        "their persistent memory via update_patient_context. Every send/booking tool has an immediate "
-        "real-world effect — only call one when it's actually warranted, not reflexively.\n\n"
+        "(appointment offers, follow-ups, meal/wellness check-ins), arm the shared sensor device for "
+        "their next reading, and write back what you learn into their persistent memory via "
+        "update_patient_context. Every send/booking/device tool has an immediate real-world effect — "
+        "only call one when it's actually warranted, not reflexively.\n\n"
         "Typical flow: call get_patient_facts first in almost every case, before deciding anything. If "
-        "they want to book, call book_appointment directly (never invent a specific time first). If "
-        "they want to cancel/reschedule, use those tools. If they're asking about their report, "
-        "biomarkers, doctor's notes, or appointments, answer ONLY from get_patient_facts. If they "
+        "get_patient_facts shows this registered patient has zero readings on file (common right after "
+        "they've just registered), call request_sensor_reading and tell them to go use the shared device "
+        "now — don't just say 'no data yet' and stop there. If they want to book, call book_appointment "
+        "directly (never invent a specific time first). If they want to cancel/reschedule, use those "
+        "tools. If they're asking about their report, biomarkers, doctor's notes, or appointments, answer "
+        "ONLY from get_patient_facts — never another patient's data, only ever this one's. If they "
         "specifically ask for their report as a PDF/document, use send_report_pdf. End most turns where "
         "you learned something concrete by calling update_patient_context.\n\n"
         "Never invent a biomarker value, diagnosis, prediction, appointment time, or fact that didn't "

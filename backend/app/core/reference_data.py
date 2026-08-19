@@ -56,48 +56,66 @@ def row_to_reading(row: dict[str, Any]) -> dict[str, Any]:
     timestamp = row["timestamp"]
     return {
         "id": row["id"],
+        # Multi-tenant (2026-08-19) — carried through so guidance_agent.py's
+        # screening.completed hand-off knows which single user to notify,
+        # without a second DB round trip. None for an orphaned/unrequested
+        # capture (see routers/readings.py's POST /readings).
+        "user_id": row.get("user_id"),
         "timestamp": timestamp.isoformat() if hasattr(timestamp, "isoformat") else timestamp,
         "metrics": metrics,
         "healthAreas": health_areas,
     }
 
 
-def get_latest_row() -> Optional[dict[str, Any]]:
+def get_latest_row(user_id: int) -> Optional[dict[str, Any]]:
+    """Multi-tenant (2026-08-19): scoped to this user only — a reading with
+    user_id IS NULL (orphaned, unrequested capture) never shows up here for
+    anyone, by design."""
     return db.fetch_one(
-        'SELECT * FROM readings ORDER BY "timestamp" DESC, id DESC LIMIT 1'
+        'SELECT * FROM readings WHERE user_id = %s ORDER BY "timestamp" DESC, id DESC LIMIT 1',
+        (user_id,),
     )
 
 
-def get_reading_history(days: int = 30) -> list[dict[str, Any]]:
+def get_reading_history(user_id: int, days: int = 30) -> list[dict[str, Any]]:
     """Oldest -> newest, same shape as GET /api/readings. Used by report_agent's
     get_reading_history tool so a report can reference a trend instead of only
     ever seeing the single latest reading."""
     days = max(1, min(365, days))
     rows = db.fetch_all(
-        'SELECT * FROM readings ORDER BY "timestamp" DESC, id DESC LIMIT %s',
-        (days,),
+        'SELECT * FROM readings WHERE user_id = %s ORDER BY "timestamp" DESC, id DESC LIMIT %s',
+        (user_id, days),
     )
     return [row_to_reading(r) for r in reversed(rows)]
 
 
-def get_context() -> dict[str, Any]:
+def get_context(user_id: int) -> dict[str, Any]:
+    """Fetch-or-create — same upsert shape as whatsapp_context.get_or_create()
+    so a brand-new account gets an empty-but-real row instead of a 404/None."""
     row = db.fetch_one(
-        "SELECT diagnosis, medications, notes, updated_at FROM patient_context WHERE id = 1"
+        """
+        INSERT INTO patient_context (user_id, diagnosis, medications, notes, updated_at)
+        VALUES (%s, '', '', '', now())
+        ON CONFLICT (user_id) DO UPDATE SET user_id = EXCLUDED.user_id
+        RETURNING diagnosis, medications, notes, updated_at
+        """,
+        (user_id,),
     )
     return row or {"diagnosis": "", "medications": "", "notes": ""}
 
 
-def get_chat_history() -> list[dict[str, Any]]:
+def get_chat_history(user_id: int) -> list[dict[str, Any]]:
     return db.fetch_all(
-        "SELECT role, content, lang, created_at FROM chat_messages ORDER BY id ASC"
+        "SELECT role, content, lang, created_at FROM chat_messages WHERE user_id = %s ORDER BY id ASC",
+        (user_id,),
     )
 
 
-def get_self_care_plan() -> Optional[dict[str, Any]]:
-    """The persisted self-care plan, or None if one has never been generated
-    (or was never persisted). Lets `POST /api/self-care` return instantly for
-    "show me what I already have" instead of always re-running the LLM."""
-    row = db.fetch_one("SELECT plan_json FROM self_care_plan WHERE id = 1")
+def get_self_care_plan(user_id: int) -> Optional[dict[str, Any]]:
+    """The persisted self-care plan for this user, or None if one has never
+    been generated. Lets `POST /api/self-care` return instantly for "show me
+    what I already have" instead of always re-running the LLM."""
+    row = db.fetch_one("SELECT plan_json FROM self_care_plan WHERE user_id = %s", (user_id,))
     if not row or not row.get("plan_json"):
         return None
     plan = row["plan_json"]

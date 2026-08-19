@@ -24,7 +24,7 @@ def _jitter(base: float, amp: float, dp: int) -> float:
 
 @router.get("/readings/latest")
 def latest(user: dict = Depends(require_user)):
-    row = reference_data.get_latest_row()
+    row = reference_data.get_latest_row(user["id"])
     if not row:
         raise HTTPException(status_code=404, detail="no readings")
     return reference_data.row_to_reading(row)
@@ -34,8 +34,8 @@ def latest(user: dict = Depends(require_user)):
 def history(days: int = 30, user: dict = Depends(require_user)):
     days = max(1, min(365, days))
     rows = db.fetch_all(
-        'SELECT * FROM readings ORDER BY "timestamp" DESC, id DESC LIMIT %s',
-        (days,),
+        'SELECT * FROM readings WHERE user_id = %s ORDER BY "timestamp" DESC, id DESC LIMIT %s',
+        (user["id"], days),
     )
     return [reference_data.row_to_reading(r) for r in reversed(rows)]
 
@@ -45,8 +45,24 @@ def add_reading(body: ReadingIn, background_tasks: BackgroundTasks):
     """Simulates a fresh sample landing in the DB (optional body values;
     otherwise generate a plausible reading near the last one). This is the
     exact trigger point the real ESP32 hits every 5 minutes (no auth) and
-    that any manual/simulated reading also hits."""
-    last = reference_data.get_latest_row()
+    that any manual/simulated reading also hits.
+
+    Multi-tenant (2026-08-19): one physical shared device with no inherent
+    per-reading owner — atomically reads-and-clears device_state's
+    pending_sample_user_id (whoever last armed the device via
+    POST /device/request-sample or the WhatsApp Agent's request_sensor_reading
+    tool) and stamps it onto this new row. An unrequested/autonomous capture
+    (nothing was pending) lands with user_id = NULL — orphaned, invisible on
+    every dashboard, by design."""
+    pending_row = db.fetch_one(
+        """
+        UPDATE device_state SET pending_sample = false, pending_sample_user_id = NULL
+        WHERE id = 1
+        RETURNING pending_sample_user_id
+        """
+    )
+    owner_user_id = pending_row["pending_sample_user_id"] if pending_row else None
+    last = reference_data.get_latest_row(owner_user_id) if owner_user_id else None
 
     if body.top_raw_channels and body.bottom_raw_channels:
         # Real color-strip capture: derive ph/creatinine/urea from the two
@@ -72,15 +88,12 @@ def add_reading(body: ReadingIn, background_tasks: BackgroundTasks):
         }
     row = db.fetch_one(
         """
-        INSERT INTO readings ("timestamp", ph, creatinine, urea, temperature)
-        VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO readings (user_id, "timestamp", ph, creatinine, urea, temperature)
+        VALUES (%s, %s, %s, %s, %s, %s)
         RETURNING *
         """,
-        (datetime.now(timezone.utc), reading["ph"], reading["creatinine"], reading["urea"], reading["temperature"]),
+        (owner_user_id, datetime.now(timezone.utc), reading["ph"], reading["creatinine"], reading["urea"], reading["temperature"]),
     )
-    # Clears any pending on-demand sample request from the dashboard —
-    # covers both the ESP32's periodic pushes and its request-triggered ones.
-    db.execute("UPDATE device_state SET pending_sample = false WHERE id = 1")
     out = reference_data.row_to_reading(row)
 
     # Fire the autonomous guidance agent as a true background task (runs

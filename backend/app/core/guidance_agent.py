@@ -128,6 +128,10 @@ async def _emit(run_id: str, node: str, status: str, label: str) -> None:
 @dataclass
 class _RunState:
     run_id: str
+    # Multi-tenant (2026-08-19): the single user this reading belongs to —
+    # every tool in this run operates on their data only, and the
+    # screening.completed hand-off at the end targets them alone (see run()).
+    user_id: int
     case_row: Optional[dict[str, Any]] = None
     reading: Optional[dict[str, Any]] = None
     ctx: Optional[dict[str, Any]] = None
@@ -148,13 +152,13 @@ class _RunState:
     action_tokens: list[str] = field(default_factory=list)
 
 
-def _load_reading() -> Optional[dict[str, Any]]:
-    row = reference_data.get_latest_row()
+def _load_reading(user_id: int) -> Optional[dict[str, Any]]:
+    row = reference_data.get_latest_row(user_id)
     return reference_data.row_to_reading(row) if row else None
 
 
-def _get_users_with_phone() -> list[dict[str, Any]]:
-    return db.fetch_all("SELECT id, email, name, phone FROM users WHERE phone <> ''")
+def _get_user_by_id(user_id: int) -> Optional[dict[str, Any]]:
+    return db.fetch_one("SELECT id, email, name, phone FROM users WHERE id = %s", (user_id,))
 
 
 async def _dispatch_screening_completed(run_id: str, user: dict[str, Any], payload: dict[str, Any]) -> None:
@@ -180,7 +184,7 @@ def _build_tools(state: _RunState) -> list:
             return "The screening pipeline has already run this session; do not call it again."
 
         try:
-            case_row = await asyncio.to_thread(scoring.claim_new_case_from_latest_reading)
+            case_row = await asyncio.to_thread(scoring.claim_new_case_from_latest_reading, state.user_id)
         except Exception as exc:
             logger.exception("claim_new_case_from_latest_reading failed")
             return f"Could not claim a new screening case: {exc}"
@@ -289,14 +293,14 @@ def _build_tools(state: _RunState) -> list:
         flags too."""
         await _emit(state.run_id, "tool_report", "start", "Generating report")
         try:
-            reading = state.reading or await asyncio.to_thread(_load_reading)
+            reading = state.reading or await asyncio.to_thread(_load_reading, state.user_id)
             state.reading = reading
             if reading is None:
                 await _emit(state.run_id, "tool_report", "error", "No reading available")
                 return "No reading available to generate a report from."
-            ctx = state.ctx if state.ctx is not None else await asyncio.to_thread(reference_data.get_context)
+            ctx = state.ctx if state.ctx is not None else await asyncio.to_thread(reference_data.get_context, state.user_id)
             state.ctx = ctx
-            await asyncio.to_thread(content_llm.report_agent, reading, ctx, "en")
+            await asyncio.to_thread(content_llm.report_agent, reading, ctx, state.user_id, "en")
         except Exception as exc:
             logger.exception("generate_report failed")
             await _emit(state.run_id, "tool_report", "error", "Report generation failed")
@@ -349,26 +353,31 @@ def _summarize(state: _RunState) -> str:
     return "Completed — no action taken" + suffix
 
 
-async def run(reading_row: dict[str, Any]) -> None:  # noqa: ARG001 - see below
+async def run(reading_row: dict[str, Any]) -> None:
     """Entry point: fired as a background asyncio task from
     routers/readings.py right after a reading is inserted and claimed.
     Never raises — every failure path ends in a `run_end` error event.
 
-    `reading_row` (the just-inserted reading, already shaped by
-    reference_data.row_to_reading()) is accepted per the entry-point contract
-    but not read directly: the run_screening_pipeline tool re-fetches the
-    latest reading itself via scoring.claim_new_case_from_latest_reading(),
-    the same shared helper routers/screening.py uses, so there's exactly one
-    code path for "turn the latest reading into a claimed screening case"
-    rather than two that could drift apart.
+    Multi-tenant (2026-08-19): `reading_row["user_id"]` (set by
+    routers/readings.py from device_state.pending_sample_user_id at insert
+    time) is now actually used — an orphaned/unrequested reading (nobody
+    armed the shared device for anyone) has no one to screen for, so this
+    returns immediately without touching the throttle lock at all, leaving
+    that slot free for a real per-user run. run_screening_pipeline still
+    re-fetches via scoring.claim_new_case_from_latest_reading(user_id), the
+    same shared helper routers/screening.py uses, just now scoped.
     """
+    user_id = reading_row.get("user_id")
+    if user_id is None:
+        logger.info("guidance_agent: orphaned/unrequested reading (no owner), skipping autonomous run")
+        return
     if not config.AUTO_AGENT_ENABLED:
         return
     if not _try_acquire():
         return
 
     run_id = str(uuid.uuid4())
-    state = _RunState(run_id=run_id)
+    state = _RunState(run_id=run_id, user_id=user_id)
 
     try:
         await ws.broadcast(
@@ -491,25 +500,23 @@ async def run(reading_row: dict[str, Any]) -> None:  # noqa: ARG001 - see below
 
             if state.organ:
                 # Hand-off point (spec §2): screening finished, fire
-                # screening.completed for every registered user with a
-                # phone number, as independent background tasks — not
-                # awaited here, so this run's own throttle lock (see
-                # finally: _release() below) isn't held hostage by however
-                # long WhatsApp Agent's model loop takes per user. Screening
-                # data is still single-patient/global (Hassan's call,
-                # 2026-08-19), so every registered account gets the same
-                # trigger rather than this being scoped to "the" patient.
+                # screening.completed for the single user this reading
+                # belongs to — CORRECTED 2026-08-19 (same day as the
+                # multi-tenant migration): this used to fan out to every
+                # registered user with a phone number, under the
+                # now-superseded assumption that screening data was
+                # global/shared. Not awaited here, so this run's own
+                # throttle lock (see finally: _release() below) isn't held
+                # hostage by however long WhatsApp Agent's model loop takes.
                 try:
-                    users = await asyncio.to_thread(_get_users_with_phone)
+                    owner = await asyncio.to_thread(_get_user_by_id, state.user_id)
                 except Exception:
-                    logger.exception("guidance_agent run %s: failed to load users for screening.completed handoff", run_id)
-                    users = []
-                payload = {"case_id": state.case_row["case_id"] if state.case_row else None,
-                           "organ": state.organ, "flag": state.flag}
-                for user in users:
-                    asyncio.create_task(
-                        _dispatch_screening_completed(run_id, user, payload)
-                    )
+                    logger.exception("guidance_agent run %s: failed to load owning user for screening.completed handoff", run_id)
+                    owner = None
+                if owner and owner.get("phone"):
+                    payload = {"case_id": state.case_row["case_id"] if state.case_row else None,
+                               "organ": state.organ, "flag": state.flag}
+                    asyncio.create_task(_dispatch_screening_completed(run_id, owner, payload))
 
         await ws.broadcast(
             {
