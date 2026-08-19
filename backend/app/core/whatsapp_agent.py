@@ -203,10 +203,11 @@ def _fallback_answer(facts: dict[str, Any], lang: str) -> str:
 
 def _unregistered_message(lang: str) -> str:
     return (
-        "I couldn't find an account linked to this number yet — sign up in the Novera app with this "
-        "phone number and I'll be able to answer questions about your report and appointments."
+        f"I couldn't find an account linked to this number yet — sign up here with this same phone "
+        f"number and message me again once you're done, I'll take it from there: {config.SIGNUP_URL}"
         if lang != "ar" else
-        "لم أجد حساباً مرتبطاً بهذا الرقم بعد — سجّل في تطبيق نوفيرا بهذا الرقم وسأتمكن من الإجابة عن أسئلتك."
+        f"لم أجد حساباً مرتبطاً بهذا الرقم بعد — سجّل من هنا بنفس رقم الهاتف هذا ثم راسلني مرة أخرى "
+        f"وسأكمل معك: {config.SIGNUP_URL}"
     )
 
 

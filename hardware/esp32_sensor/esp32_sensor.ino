@@ -213,6 +213,27 @@ void updateReadyLED() {
   digitalWrite(READY_LED_PIN, (WiFi.status() == WL_CONNECTED && as7341Ready) ? HIGH : LOW);
 }
 
+// "Get ready" cue for an on-demand request (dashboard button or the
+// WhatsApp Agent's request_sensor_reading tool) — two quick blinks after a
+// brief pause, distinct from the ready LED's normal steady-on "armed" state
+// and from the capture-window on/off pattern runFullTest() drives directly.
+// Blocking delay()s, same as the existing TRANSITION_GAP_MS pause between
+// capture windows below — a single bounded pause here, not a tight
+// busy-wait loop, so this doesn't risk starving WiFi/watchdog housekeeping
+// the way a polling loop would.
+#define REQUEST_CUE_DELAY_MS 1000
+#define REQUEST_CUE_BLINK_MS 150
+
+void signalRequestReceived() {
+  delay(REQUEST_CUE_DELAY_MS);
+  for (int i = 0; i < 2; i++) {
+    digitalWrite(READY_LED_PIN, LOW);
+    delay(REQUEST_CUE_BLINK_MS);
+    digitalWrite(READY_LED_PIN, HIGH);
+    delay(REQUEST_CUE_BLINK_MS);
+  }
+}
+
 void connectWiFi() {
   if (WiFi.status() == WL_CONNECTED) {
     updateStatusLED();
@@ -509,7 +530,9 @@ void loop() {
   if (millis() - lastPingAt >= PING_INTERVAL_MS) {
     lastPingAt = millis();
     if (checkPendingSample()) {
-      Serial.println("Dashboard requested a sample -- starting test now.");
+      Serial.println("Sample requested (dashboard or WhatsApp) -- get ready...");
+      signalRequestReceived();
+      Serial.println("Starting test now.");
       sendReading();
       lastSendAt = millis();
     }

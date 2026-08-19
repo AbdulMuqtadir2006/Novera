@@ -51,6 +51,10 @@ APPOINTMENT_LEAD_MINUTES = 30
 SLOT_MINUTES = 30
 NEXT_DAY_MORNING_HOUR = 8
 
+# ---- website (patient-facing signup, linked from the WhatsApp Agent when
+# an unregistered number texts in) ----
+SIGNUP_URL = os.getenv("SIGNUP_URL", "https://www.echo-nova.online/signup").strip()
+
 # ---- CORS (req 15) ----
 CORS_ORIGINS = [
     origin.strip()
