@@ -81,19 +81,30 @@ def build_report_pdf(reading: dict[str, Any], report_data: dict[str, Any]) -> by
 
     # ---- header: wordmark left, headline + timestamp right (mirrors the
     # PrintableReport flex header) ----
+    # Headline is LLM-generated text of unbounded length — a fixed-width,
+    # single-line, right-aligned cell would silently overflow past its
+    # column and overlap the NOVERA wordmark when it's long. multi_cell
+    # wraps instead, and the row height below adapts to however tall that
+    # wrapped text ended up, so nothing after it ever overlaps it either.
+    right_w = page_w * 0.45
+    right_x = pdf.l_margin + page_w * 0.55
+    header_top = pdf.get_y()
+
     pdf.set_font("Helvetica", "B", 20)
     pdf.set_text_color(*DEPTH)
     pdf.cell(page_w * 0.55, 9, "NOVERA", ln=0)
 
+    pdf.set_xy(right_x, header_top)
     pdf.set_font("Helvetica", "B", 10.5)
     pdf.set_text_color(*DEPTH)
-    pdf.cell(page_w * 0.45, 6, _safe(report_data.get("headline", "")), ln=1, align="R")
+    pdf.multi_cell(right_w, 5, _safe(report_data.get("headline", "")), align="R")
 
+    pdf.set_xy(right_x, pdf.get_y())
     pdf.set_font("Courier", "", 8.5)
     pdf.set_text_color(*MUTED)
-    pdf.set_x(pdf.l_margin + page_w * 0.55)
-    pdf.cell(page_w * 0.45, 5, _fmt_timestamp(reading["timestamp"]), align="R")
-    pdf.ln(10)
+    pdf.cell(right_w, 5, _fmt_timestamp(reading["timestamp"]), align="R")
+
+    pdf.set_y(max(header_top + 9, pdf.get_y() + 5) + 4)
 
     pdf.set_draw_color(*SIGNAL)
     pdf.set_line_width(0.4)
@@ -107,6 +118,16 @@ def build_report_pdf(reading: dict[str, Any], report_data: dict[str, Any]) -> by
     pdf.ln(4)
 
     # ---- biomarkers table ----
+    # Auto-page-break is per-cell, not per-row/table — without this guard a
+    # page break could fall between the "BIOMARKERS" label and the header
+    # row, or between the header row and the data rows, splitting the table
+    # across two pages. Force the whole block onto a fresh page up front if
+    # it won't fit, same pattern already used for the area cards below.
+    num_biomarker_rows = len(reference_data.REFERENCE)
+    table_h = 5 + 1 + 8 + 8 * num_biomarker_rows
+    if pdf.get_y() + table_h > pdf.page_break_trigger:
+        pdf.add_page()
+
     pdf.set_font("Courier", "", 8.5)
     pdf.set_text_color(*MUTED)
     pdf.cell(page_w, 5, "BIOMARKERS", ln=1)
