@@ -159,6 +159,17 @@ ALTER TABLE sessions ALTER COLUMN expires_at SET NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_sessions_expires_at
     ON sessions (expires_at);
 
+-- Deduplicates Meta WhatsApp webhook retries. Meta re-sends the exact same
+-- inbound message if the server doesn't ack fast enough (the agent loop +
+-- PDF generation can take well past that), and the webhook used to have no
+-- way to tell a retry from a new message — replaying the whole agent loop
+-- each time, which is why patients were getting the same report PDF sent to
+-- them multiple times. See routers/whatsapp.py.
+CREATE TABLE IF NOT EXISTS whatsapp_inbound_messages (
+    message_id   TEXT PRIMARY KEY,
+    received_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- ---------------------------------------------------------------------------
 -- Appointments (WhatsApp booking) — replaces the old appointments.json file.
 -- ---------------------------------------------------------------------------
