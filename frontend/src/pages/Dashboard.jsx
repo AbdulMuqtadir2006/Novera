@@ -182,7 +182,18 @@ export default function Dashboard() {
     setSampleError(false);
     try {
       const before = reading?.timestamp ?? null;
-      await requestSample();
+      // No catch around this before now — a failure here (expired session,
+      // network hiccup, anything) was silently swallowed: the button just
+      // stopped spinning with zero feedback, indistinguishable from "did
+      // nothing." Now surfaces the same error banner the poll-timeout path
+      // already uses, and logs the real cause for debugging.
+      try {
+        await requestSample();
+      } catch (e) {
+        console.error("requestSample failed:", e);
+        setSampleError(true);
+        return;
+      }
 
       const deadline = Date.now() + POLL_TIMEOUT_MS;
       let landed = false;
