@@ -28,12 +28,7 @@ export function BundleCard({ bundle, recommended, qtyInCart, onAdd }) {
         </span>
       )}
 
-      <ProductImage
-        src={IMAGE_BY_SKU[bundle.sku]}
-        alt={bundle.name}
-        icon={Droplets}
-        className="-mx-6 -mt-6 mb-5 h-40 w-[calc(100%+3rem)]"
-      />
+      <ProductImage src={IMAGE_BY_SKU[bundle.sku]} alt={bundle.name} icon={Droplets} className="mb-5 h-40 w-full" />
 
       <h3 className="font-display text-xl font-semibold text-depth">{bundle.name}</h3>
 
