@@ -310,6 +310,14 @@ BEGIN
         EXECUTE 'ALTER TABLE patient_context DROP CONSTRAINT ' || quote_ident(r.conname);
     END LOOP;
 END $$;
+-- BUG FIX (found live in production, 2026-08-19): dropping a PRIMARY KEY
+-- does NOT drop the underlying NOT NULL on that column — that's a separate
+-- attnotnull flag, not a pg_constraint row, so the loop above never touched
+-- it. Every upsert that omits `id` (all of them now — nothing generates it
+-- anymore, no sequence was ever attached, this was a plain INTEGER PK, not
+-- SERIAL) was failing with "null value in column id violates not-null
+-- constraint" until this line was added.
+ALTER TABLE patient_context ALTER COLUMN id DROP NOT NULL;
 ALTER TABLE patient_context ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
 DO $$
 BEGIN
@@ -326,6 +334,7 @@ BEGIN
         EXECUTE 'ALTER TABLE self_care_plan DROP CONSTRAINT ' || quote_ident(r.conname);
     END LOOP;
 END $$;
+ALTER TABLE self_care_plan ALTER COLUMN id DROP NOT NULL;
 ALTER TABLE self_care_plan ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
 DO $$
 BEGIN
