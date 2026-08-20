@@ -1,13 +1,15 @@
-"""Reasoning-stream narration for the Guidance Agent's live workflow ticker.
+"""Reasoning-stream narration for WhatsApp Agent's live workflow ticker.
 
-One additional, single-shot LLM call made *after* guidance_agent.py's real
-tool-calling loop has already finished and already decided (for real) which
-actions to take. This module never decides anything — it narrates an
-already-completed outcome. The forced-override in generate_reasoning_stream()
-(replacing the model's own final `> Decision: ...` line with one built
-directly from the real action_tokens list) is what keeps that true: nothing
-broadcast to the public /ws/pipeline socket is ever the LLM's own claim about
-what happened, only code's.
+One additional, single-shot LLM call made *after* whatsapp_agent.py's real
+tool-calling loop has already run run_screening_pipeline and already decided
+(for real) which actions to take (moved here from guidance_agent.py in the
+2026-08-20 orchestrator merge — guidance_agent.py no longer exists). This
+module never decides anything — it narrates an already-completed outcome.
+The forced-override in generate_reasoning_stream() (replacing the model's own
+final `> Decision: ...` line with one built directly from the real
+action_tokens list) is what keeps that true: nothing broadcast to the public
+/ws/pipeline socket is ever the LLM's own claim about what happened, only
+code's.
 
 Decorative enrichment, not required for a run to succeed — any failure here
 (LLM not configured, network error, malformed response) returns None and the

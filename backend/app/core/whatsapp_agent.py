@@ -24,6 +24,7 @@ invented time); factual answers are grounded ONLY in get_patient_facts.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
@@ -36,8 +37,11 @@ from . import (
     booking,
     clinic,
     content_llm,
+    reasoning_stream,
     reference_data,
     report_pdf,
+    scoring,
+    screening_llm,
     whatsapp_client,
     whatsapp_context,
     whatsapp_gating,
@@ -47,19 +51,59 @@ from .device_control import arm_device_for_user
 
 logger = logging.getLogger(__name__)
 
-MAX_ITERATIONS = 5
+MAX_ITERATIONS = 7  # bumped 5 -> 7 (2026-08-20, orchestrator merge): a full
+# reading-to-followup run can now need run_screening_pipeline -> generate_report
+# -> send_appointment_offer -> update_patient_context -> final reply, tighter
+# against the old cap than any trigger needed before the merge.
 
 # The 4 proactive triggers, plus the 1 reactive one — kept as a closed set so
 # a typo'd trigger name fails loudly instead of silently building a vague
 # system prompt (see _trigger_description below).
-PROACTIVE_TRIGGERS = ("screening.completed", "appointment.completed", "mealtime.checkin", "wellness.checkin")
+#
+# "screening.completed" retired 2026-08-20 (orchestrator merge, see
+# novera-whatsapp-autonomous-agent-spec.md's successor doc) — Guidance Agent
+# used to run the screening pipeline separately and fire that event as a
+# hand-off. Now WhatsApp Agent runs the pipeline itself (run_screening_pipeline
+# tool, ported from guidance_agent.py) directly off "sensor.reading_received",
+# so there's no separate hand-off: one continuous run, not two agents passing
+# a baton. guidance_agent.py has been deleted.
+PROACTIVE_TRIGGERS = ("sensor.reading_received", "appointment.completed", "mealtime.checkin", "wellness.checkin")
+
+# In-flight/throttle guard for sensor.reading_received specifically — ported
+# unchanged from guidance_agent.py's module-level _in_progress/
+# _last_completed_at (2026-08-20 orchestrator merge). Global, not per-user,
+# same as before: two different users' readings within 60s of each other
+# still means the second one's autonomous run is skipped, not queued — an
+# existing limitation, not something this merge changes. Only the
+# sensor.reading_received path is gated by this; the other 4 triggers were
+# never covered by it and still aren't.
+READING_THROTTLE_SECONDS = 60
+_reading_run_in_progress = False
+_reading_run_last_completed_at: Optional[float] = None
+
+
+def _try_acquire_reading_run() -> bool:
+    global _reading_run_in_progress, _reading_run_last_completed_at
+    if _reading_run_in_progress:
+        return False
+    now = time.monotonic()
+    if _reading_run_last_completed_at is not None and (now - _reading_run_last_completed_at) < READING_THROTTLE_SECONDS:
+        return False
+    _reading_run_in_progress = True
+    return True
+
+
+def _release_reading_run() -> None:
+    global _reading_run_in_progress, _reading_run_last_completed_at
+    _reading_run_in_progress = False
+    _reading_run_last_completed_at = time.monotonic()
 
 # Diagram wiring (frontend/src/data/liveWorkflow.js, lane 2) — every
 # broadcast payload here follows the exact same PII discipline
 # guidance_agent.py already established: node/status/coarse-label only,
 # never a phone number, patient name, or message content.
 _TRIGGER_TO_NODE = {
-    "screening.completed": "wa_trigger_screening",
+    "sensor.reading_received": "wa_trigger_reading",
     "appointment.completed": "wa_trigger_appointment",
     "mealtime.checkin": "wa_trigger_meal",
     "wellness.checkin": "wa_trigger_wellness",
@@ -79,6 +123,14 @@ _TOOL_TO_NODE = {
     "send_wellness_checkin": "wa_tool_checkin",
     "update_patient_context": "wa_tool_memory",
     "request_sensor_reading": "wa_tool_facts",
+    # generate_report/request_retest ported from guidance_agent.py (2026-08-20
+    # orchestrator merge) — the generic per-tool broadcast below is enough for
+    # these two, same as every other tool here. run_screening_pipeline is
+    # deliberately NOT mapped — it broadcasts its own internal sub-steps
+    # (validate/score_kidney/score_stomach/score_oral) directly, since one
+    # coarse start/success pair wouldn't show the real work happening inside it.
+    "generate_report": "wa_tool_report",
+    "request_retest": "wa_tool_retest",
 }
 
 
@@ -215,8 +267,25 @@ def _unregistered_message(lang: str) -> str:
 # tools — built fresh per run, closing over that run's resolved
 # user/phone/lang/context so concurrent runs never share state.
 # ---------------------------------------------------------------------------
-def _build_tools(user: Optional[dict[str, Any]], phone: str, lang: str, within_window: bool) -> list:
+def _build_tools(
+    user: Optional[dict[str, Any]],
+    phone: str,
+    lang: str,
+    within_window: bool,
+    screening_state: Optional[dict[str, Any]] = None,
+) -> list:
     facts_cache: dict[str, Any] = {}
+    # Shared across run_screening_pipeline/generate_report/request_retest for
+    # this one run only (fresh dict per _build_tools call, same "concurrent
+    # runs never share state" guarantee facts_cache already has). Ported from
+    # guidance_agent.py's _RunState (2026-08-20 orchestrator merge). Callers
+    # that need to read the outcome after the loop (handle_trigger, for the
+    # reasoning-stream narration and the post-screening safety-floor check)
+    # pass their own dict in; handle_inbound doesn't need to, so it's created
+    # here when omitted.
+    if screening_state is None:
+        screening_state = {}
+    has_phone = bool(phone)
 
     def _context() -> dict[str, Any]:
         return whatsapp_context.get_or_create(user["id"]) if user else {}
@@ -285,7 +354,15 @@ def _build_tools(user: Optional[dict[str, Any]], phone: str, lang: str, within_w
                     phone, existing["id"], new_booking["id"])
         return whatsapp_client.reschedule_message(existing, new_booking)
 
-    tools = [get_patient_facts, check_slot_availability, book_appointment, cancel_appointment, reschedule_appointment]
+    # get_patient_facts/update_patient_context/request_sensor_reading and the
+    # screening tools below never need a phone. Everything that messages or
+    # books needs somewhere to send to — offering them without a phone would
+    # just error when called, so they're excluded up front instead. This is
+    # what lets sensor.reading_received run for accounts with no phone on
+    # file (2026-08-20 orchestrator merge) without silently failing mid-tool.
+    tools = [get_patient_facts]
+    if has_phone:
+        tools += [check_slot_availability, book_appointment, cancel_appointment, reschedule_appointment]
 
     # send_report_pdf and send_voice_note attach real media/documents — Meta
     # templates can't carry those, so unlike the 3 semantic proactive-send
@@ -293,7 +370,7 @@ def _build_tools(user: Optional[dict[str, Any]], phone: str, lang: str, within_w
     # are only offered to the model at all when the window is actually open.
     # On the reactive path within_window is always True (the patient just
     # messaged), so this never restricts today's normal Q&A behavior.
-    if within_window:
+    if within_window and has_phone:
         @tool
         def send_report_pdf() -> str:
             """Generate this patient's latest screening report as a PDF and
@@ -452,24 +529,167 @@ def _build_tools(user: Optional[dict[str, Any]], phone: str, lang: str, within_w
         arm_device_for_user(user["id"])
         return "Device armed for this patient — their next capture on the shared sensor will be linked to their account."
 
-    tools += [
-        send_appointment_offer,
-        send_post_appointment_followup,
-        send_meal_checkin,
-        send_wellness_checkin,
-        update_patient_context,
-        request_sensor_reading,
-    ]
+    if has_phone:
+        tools += [send_appointment_offer, send_post_appointment_followup, send_meal_checkin, send_wellness_checkin]
+    tools += [update_patient_context, request_sensor_reading]
+
+    # ---------------------------------------------------------------------
+    # Screening tools — ported from guidance_agent.py (2026-08-20
+    # orchestrator merge; that module is deleted). Async -> sync: guidance_
+    # agent.run() executed on FastAPI's main event loop and needed
+    # asyncio.to_thread()/await ws.broadcast() everywhere to avoid blocking
+    # it. WhatsApp Agent already runs inside asyncio.to_thread(handle_trigger,
+    # ...) — it's off the main loop before any tool ever runs — so these call
+    # scoring/screening_llm directly and broadcast via _wa_emit, same as
+    # every other tool in this file. None of scoring.py's deterministic math
+    # or screening_llm.decide()'s narrow, separately-audited decision loop
+    # changed even slightly; only who calls them did.
+    # ---------------------------------------------------------------------
+    @tool
+    def run_screening_pipeline() -> str:
+        """Claim the latest saliva reading into a new screening case and run
+        the deterministic organ-screening pipeline (validate -> score
+        KIDNEY/STOMACH/ORAL -> single screening decision call). Call this
+        first when triggered by a new sensor reading (sensor.reading_received)
+        — it's the only source of the organ prediction, confidence, and flag.
+        Don't call it for any other trigger, and don't call it twice in one run."""
+        if not user:
+            return "No account is linked to this phone number, so there's no reading to screen."
+        if screening_state.get("screening_done"):
+            return "The screening pipeline has already run this session; do not call it again."
+
+        try:
+            case_row = scoring.claim_new_case_from_latest_reading(user["id"])
+        except Exception as exc:
+            logger.exception("whatsapp_agent run_screening_pipeline: claim failed")
+            return f"Could not claim a new screening case: {exc}"
+        if case_row is None:
+            return "No reading is available to screen."
+        screening_state["case_row"] = case_row
+
+        _wa_emit("validate", "start", "Validating reading")
+        try:
+            errors = scoring.validate_reading(case_row)
+        except Exception as exc:
+            _wa_emit("validate", "error", "Validation failed")
+            logger.exception("whatsapp_agent run_screening_pipeline: validate failed")
+            return f"Validation step raised an error: {exc}"
+
+        if errors:
+            reason = "; ".join(errors)
+            _wa_emit("validate", "error", "Validation failed")
+            scoring.mark_retest_required(case_row["id"], reason)
+            screening_state["screening_done"] = True
+            return (
+                f"Validation failed ({reason}). The case has been marked RETEST_REQUIRED "
+                "already — do not call request_retest for this."
+            )
+        _wa_emit("validate", "success", "Reading validated")
+
+        values = {b: float(case_row[b]) for b in scoring.BIOMARKERS}
+        engine = scoring.get_engine()
+        node_map = {"KIDNEY": "score_kidney", "STOMACH": "score_stomach", "ORAL": "score_oral"}
+        specialist_results = []
+        for organ in scoring.ORGANS:
+            node = node_map[organ]
+            _wa_emit(node, "start", f"Scoring {organ.title()}")
+            result = engine.evaluate(organ, values)
+            specialist_results.append(result)
+            _wa_emit(node, "success", f"{organ.title()} fit: {result['flag']}")
+
+        try:
+            decision, model, raw_result = screening_llm.decide(case_row, specialist_results)
+        except screening_llm.HumanReviewRequested as exc:
+            try:
+                scoring.mark_retest_required(case_row["id"], exc.reason)
+            except Exception as mark_exc:
+                logger.exception(
+                    "whatsapp_agent run_screening_pipeline: mark_retest_required failed after HumanReviewRequested"
+                )
+                screening_state["screening_done"] = True
+                return f"The screening decision was flagged for human review, but saving that status failed: {mark_exc}"
+            screening_state["screening_done"] = True
+            screening_state["retest_requested"] = True
+            return (
+                f"The screening decision component flagged this case for human review "
+                f"(reason: {exc.reason}). The case has already been marked RETEST_REQUIRED — "
+                "do not call request_retest for this case."
+            )
+        except screening_llm.OpenRouterDecisionError:
+            scoring.release_reading(case_row["id"])
+            screening_state["screening_done"] = True
+            return (
+                "The screening decision call failed; the case was released back to NEW "
+                "(no prediction saved). Consider calling request_retest."
+            )
+
+        scoring.persist_decision(case_row, decision, specialist_results, model, raw_result)
+        flag = next((r["flag"] for r in specialist_results if r["organ"] == decision["prediction"]), "medium")
+        matched_cases = next(
+            (r["matched_cases"] for r in specialist_results if r["organ"] == decision["prediction"]), None
+        )
+
+        screening_state["screening_done"] = True
+        screening_state["organ"] = decision["prediction"]
+        screening_state["confidence"] = decision["confidence"]
+        screening_state["flag"] = flag
+        screening_state["reason"] = decision.get("reason")
+        screening_state["matched_cases"] = matched_cases
+        return (
+            f"Screening complete. Predicted organ: {decision['prediction']}, "
+            f"confidence: {decision['confidence']:.2f}, flag: {flag}. Use this to decide "
+            "whether to generate a report, offer a clinic appointment, or (only if this "
+            "had failed) request a retest."
+        )
+
+    @tool
+    def generate_report() -> str:
+        """Generate the plain-language screening report (per-area notes +
+        recommendation) for this patient's latest reading, taking any
+        doctor-provided context into account. Worth calling for medium/high
+        flags, and often for low flags too."""
+        if not user:
+            return "No account is linked to this phone number, so there's no report to generate."
+        row = reference_data.get_latest_row(user["id"])
+        if not row:
+            return "No reading available to generate a report from."
+        reading = reference_data.row_to_reading(row)
+        ctx = reference_data.get_context(user["id"])
+        content_llm.report_agent(reading, ctx, user["id"], "en")
+        screening_state.setdefault("action_tokens", []).append("report")
+        return "Report generated and saved successfully — use send_report_pdf if the patient wants it sent as a document."
+
+    @tool
+    def request_retest(reason: str) -> str:
+        """Flag the current case as needing a retest instead of guessing —
+        use this only when run_screening_pipeline's validation failed or it
+        could not produce a confident result. `reason` is a short explanation."""
+        case_row = screening_state.get("case_row")
+        if case_row:
+            scoring.mark_retest_required(case_row["id"], reason)
+        screening_state["retest_requested"] = True
+        screening_state.setdefault("action_tokens", []).append("request_retest")
+        return "Retest requested successfully."
+
+    tools += [run_screening_pipeline, generate_report, request_retest]
     return tools
 
 
 _TRIGGER_DESCRIPTION = {
-    "screening.completed": (
-        "A new saliva screening just completed for this patient. Check get_patient_facts for the "
-        "result. If the flag is medium or high, you should very likely send an appointment offer "
-        "(the code will force one anyway if you don't, per the safety guarantee — but use your own "
+    "sensor.reading_received": (
+        "A new saliva reading just arrived from the sensor. Call run_screening_pipeline first — "
+        "never guess an organ or a flag yourself, and never skip straight to messaging the patient "
+        "before you have a real result. Based on what it returns: generate_report is worth calling "
+        "for medium/high flags, and often for low flags too. If a medium/high flag comes back, you "
+        "should very likely also call send_appointment_offer if this patient has a phone on file "
+        "(the code forces one anyway if you don't, per the safety guarantee — but use your own "
         "judgment on tone and whether to add anything else, like a written spoken-style summary). "
-        "If the flag is low, a brief reassuring note is optional, not required — restraint is fine."
+        "If the flag is low, a brief reassuring note is optional, not required — restraint is fine. "
+        "If validation failed or the pipeline couldn't produce a confident result, call "
+        "request_retest instead of guessing — never call it after a successful, confident screening. "
+        "If this patient has no phone on file, none of the send/booking tools are available to you "
+        "this run — screen, report, and remember what happened via update_patient_context; there's "
+        "nowhere to message them, which is expected, not an error."
     ),
     "appointment.completed": (
         "This patient's booked appointment time has just passed. Consider sending a post-appointment "
@@ -518,12 +738,13 @@ def _system_prompt(user: Optional[dict[str, Any]], lang: str, trigger: str) -> s
         f"{registered_note}\n\n"
         f"Why you're running right now: {wake_reason}\n\n"
         f"{restraint_note}\n\n"
-        "You have tools to look up this patient's real facts, book/cancel/reschedule a REAL clinic "
-        "appointment, send their report/a spoken-style summary, send proactive outreach messages "
-        "(appointment offers, follow-ups, meal/wellness check-ins), arm the shared sensor device for "
-        "their next reading, and write back what you learn into their persistent memory via "
-        "update_patient_context. Every send/booking/device tool has an immediate real-world effect — "
-        "only call one when it's actually warranted, not reflexively.\n\n"
+        "You have tools to look up this patient's real facts, run the deterministic organ-screening "
+        "pipeline on their latest reading and generate their report, book/cancel/reschedule a REAL "
+        "clinic appointment, send their report/a spoken-style summary, send proactive outreach "
+        "messages (appointment offers, follow-ups, meal/wellness check-ins), arm the shared sensor "
+        "device for their next reading, and write back what you learn into their persistent memory "
+        "via update_patient_context. Every send/booking/device/screening tool has an immediate "
+        "real-world effect — only call one when it's actually warranted, not reflexively.\n\n"
         "Typical flow: call get_patient_facts first in almost every case, before deciding anything. If "
         "get_patient_facts shows this registered patient has zero readings on file (common right after "
         "they've just registered), call request_sensor_reading and tell them to go use the shared device "
@@ -646,68 +867,139 @@ def handle_inbound(from_number: str, text: str, lang: str = "en") -> str:
     return _fallback_answer(_gather_patient_facts(user), lang)
 
 
+def _narrate_screening(screening_state: dict[str, Any]) -> None:
+    """Ported from guidance_agent.run() (2026-08-20 orchestrator merge) —
+    decorative reasoning-stream ticker lines for the homepage diagram, fired
+    once run_screening_pipeline actually produced a result this run. Fully
+    best-effort: reasoning_stream.generate_reasoning_stream() already returns
+    None on any failure (see its own docstring), and this whole function is
+    called from inside handle_trigger's try/except, so a failure here can
+    never break the actual screening/messaging work that already happened."""
+    narration_lines = reasoning_stream.generate_reasoning_stream(
+        screening_state.get("organ"),
+        screening_state.get("confidence"),
+        screening_state.get("reason") or "",
+        screening_state.get("flag"),
+        screening_state.get("matched_cases"),
+        screening_state.get("action_tokens", []),
+    )
+    if not narration_lines:
+        return
+    for line in narration_lines:
+        clean_line = line[2:] if line.startswith("> ") else line
+        ws.broadcast_from_thread({"type": "narration", "source": "whatsapp", "label": clean_line})
+
+
 def handle_trigger(trigger: str, user: dict[str, Any], payload: Optional[dict[str, Any]] = None, lang: str = "en") -> None:
     """Proactive entry point: woken by something other than a patient message
-    (see PROACTIVE_TRIGGERS). Requires an already-resolved, registered `user`
-    — proactive outreach only ever targets a real account with a phone
-    number. Fires and forgets: no reply is returned to a caller, since
-    there's no inbound request to reply to. The model may legitimately decide
-    to send nothing — that's success, not failure, logged as such."""
+    (see PROACTIVE_TRIGGERS). Requires an already-resolved, registered `user`.
+    Fires and forgets: no reply is returned to a caller, since there's no
+    inbound request to reply to. The model may legitimately decide to send
+    nothing — that's success, not failure, logged as such.
+
+    sensor.reading_received is the one trigger that runs without a phone on
+    file (2026-08-20 orchestrator merge) — screening must still happen for
+    every account, phone or not; see _build_tools' has_phone gating for what
+    that does and doesn't make available. Every other trigger still requires
+    a phone, since proactive WhatsApp outreach has nowhere to go without one."""
     if trigger not in PROACTIVE_TRIGGERS:
         logger.error("whatsapp_agent.handle_trigger: unknown trigger %r", trigger)
         return
     phone = normalize_phone(user.get("phone") or "")
-    if not phone:
+    if not phone and trigger != "sensor.reading_received":
         logger.info("whatsapp_agent.handle_trigger: user_id=%s has no phone on file, skipping trigger=%s",
                     user.get("id"), trigger)
         return
 
-    # Safety floor (spec §6): forced, not suggested, runs before the model
-    # gets a turn at all — every proactive trigger passes through this, not
-    # just screening.completed, as a general net in case a medium/high flag
-    # somehow wasn't already handled by its own trigger.
-    try:
-        forced = whatsapp_gating.enforce_outreach_guarantee(user)
-        if forced:
-            logger.info("whatsapp_agent.handle_trigger: safety-floor outreach forced for user_id=%s (trigger=%s)",
-                        user["id"], trigger)
-    except Exception:
-        logger.exception("whatsapp_agent.handle_trigger: enforce_outreach_guarantee failed for user_id=%s", user["id"])
-
-    if not config.AI_ENABLED:
-        logger.info("whatsapp_agent.handle_trigger: AI not configured, skipping trigger=%s for user_id=%s",
-                    trigger, user.get("id"))
+    is_reading_trigger = trigger == "sensor.reading_received"
+    if is_reading_trigger and not _try_acquire_reading_run():
+        # Throttled — emits nothing and fails silently, same behavior
+        # guidance_agent.py's throttle always had.
         return
 
-    context = whatsapp_context.get_or_create(user["id"])
-    within_window = whatsapp_context.within_24h_window(context)
-    tools = _build_tools(user, phone, lang, within_window=within_window)
-
-    payload_line = f"\n\nTrigger payload: {payload}" if payload else ""
-    messages: list = [
-        SystemMessage(content=_system_prompt(user, lang, trigger=trigger)),
-        HumanMessage(content=f"Trigger fired: {trigger}{payload_line}"),
-    ]
-    wa_trigger_node = _TRIGGER_TO_NODE[trigger]
-    _wa_emit(wa_trigger_node, "start", f"{trigger} fired")
-    _wa_emit("wa_agent", "start", "WhatsApp Agent deciding")
     try:
-        reply, hit_cap = _run_agent_loop(messages, tools)
-        if hit_cap:
-            logger.info("whatsapp_agent.handle_trigger: hit iteration cap for trigger=%s user_id=%s",
-                        trigger, user["id"])
-        logger.info("whatsapp_agent.handle_trigger: trigger=%s user_id=%s completed, model note=%r",
-                    trigger, user["id"], reply)
-        _wa_emit(wa_trigger_node, "success", f"{trigger} handled")
-        # Coarse, non-identifying label only — `reply` is the model's own
-        # free-form note and may reference patient-specific details (already
-        # logged server-side only, above); never put it on the public socket,
-        # same discipline guidance_agent.py's _summarize() docstring explains.
-        _wa_emit("wa_agent", "success", "Decided to act" if reply else "Stayed quiet — no message needed")
-        _wa_run_end(f"WhatsApp Agent handled {trigger}")
-    except Exception:
-        logger.exception("whatsapp_agent.handle_trigger: agent loop failed for trigger=%s user_id=%s",
-                          trigger, user["id"])
-        _wa_emit(wa_trigger_node, "error", f"{trigger} failed")
-        _wa_emit("wa_agent", "error", "Run failed")
-        _wa_run_end(f"WhatsApp Agent run failed ({trigger})")
+        # Safety floor (spec §6): forced, not suggested. For every trigger
+        # except sensor.reading_received, the latest completed screening is
+        # already settled by the time the trigger fires, so checking it
+        # before the model gets a turn is correct — a general net in case a
+        # medium/high flag somehow wasn't already handled by its own
+        # trigger. For sensor.reading_received specifically, THIS run's
+        # screening hasn't happened yet at this point — checking now would
+        # only ever see the *previous* completed case's flag. That check
+        # moves to after the loop below, once run_screening_pipeline has
+        # actually persisted a decision.
+        if not is_reading_trigger:
+            try:
+                forced = whatsapp_gating.enforce_outreach_guarantee(user)
+                if forced:
+                    logger.info("whatsapp_agent.handle_trigger: safety-floor outreach forced for user_id=%s (trigger=%s)",
+                                user["id"], trigger)
+            except Exception:
+                logger.exception("whatsapp_agent.handle_trigger: enforce_outreach_guarantee failed for user_id=%s", user["id"])
+
+        if not config.AI_ENABLED:
+            logger.info("whatsapp_agent.handle_trigger: AI not configured, skipping trigger=%s for user_id=%s",
+                        trigger, user.get("id"))
+            return
+
+        context = whatsapp_context.get_or_create(user["id"])
+        within_window = whatsapp_context.within_24h_window(context)
+        screening_state: dict[str, Any] = {}
+        tools = _build_tools(user, phone, lang, within_window=within_window, screening_state=screening_state)
+
+        payload_line = f"\n\nTrigger payload: {payload}" if payload else ""
+        messages: list = [
+            SystemMessage(content=_system_prompt(user, lang, trigger=trigger)),
+            HumanMessage(content=f"Trigger fired: {trigger}{payload_line}"),
+        ]
+        wa_trigger_node = _TRIGGER_TO_NODE[trigger]
+        _wa_emit(wa_trigger_node, "start", f"{trigger} fired")
+        _wa_emit("wa_agent", "start", "WhatsApp Agent deciding")
+        try:
+            reply, hit_cap = _run_agent_loop(messages, tools)
+            if hit_cap:
+                logger.info("whatsapp_agent.handle_trigger: hit iteration cap for trigger=%s user_id=%s",
+                            trigger, user["id"])
+            logger.info("whatsapp_agent.handle_trigger: trigger=%s user_id=%s completed, model note=%r",
+                        trigger, user["id"], reply)
+
+            if is_reading_trigger and screening_state.get("organ"):
+                try:
+                    _narrate_screening(screening_state)
+                except Exception:
+                    logger.exception("whatsapp_agent.handle_trigger: reasoning-stream narration failed for user_id=%s", user["id"])
+                # Post-screening safety floor (see the comment above where the
+                # pre-loop check is skipped for this trigger) — runs now that
+                # this run's own decision is actually persisted. If the agent's
+                # own loop already sent an offer this run, mark_outbound already
+                # moved last_outbound_at to "now", so enforce_outreach_guarantee's
+                # own cooldown check naturally no-ops here instead of double-sending.
+                try:
+                    forced = whatsapp_gating.enforce_outreach_guarantee(user)
+                    if forced:
+                        logger.info(
+                            "whatsapp_agent.handle_trigger: post-screening safety-floor outreach forced for user_id=%s",
+                            user["id"],
+                        )
+                except Exception:
+                    logger.exception(
+                        "whatsapp_agent.handle_trigger: post-screening enforce_outreach_guarantee failed for user_id=%s",
+                        user["id"],
+                    )
+
+            _wa_emit(wa_trigger_node, "success", f"{trigger} handled")
+            # Coarse, non-identifying label only — `reply` is the model's own
+            # free-form note and may reference patient-specific details (already
+            # logged server-side only, above); never put it on the public socket,
+            # same discipline guidance_agent.py's _summarize() docstring explained.
+            _wa_emit("wa_agent", "success", "Decided to act" if reply else "Stayed quiet — no message needed")
+            _wa_run_end(f"WhatsApp Agent handled {trigger}")
+        except Exception:
+            logger.exception("whatsapp_agent.handle_trigger: agent loop failed for trigger=%s user_id=%s",
+                              trigger, user["id"])
+            _wa_emit(wa_trigger_node, "error", f"{trigger} failed")
+            _wa_emit("wa_agent", "error", "Run failed")
+            _wa_run_end(f"WhatsApp Agent run failed ({trigger})")
+    finally:
+        if is_reading_trigger:
+            _release_reading_run()

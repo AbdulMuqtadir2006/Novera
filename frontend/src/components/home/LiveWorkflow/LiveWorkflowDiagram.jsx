@@ -105,11 +105,11 @@ function StatusBadge({ status, reducedMotion }) {
   return <span className="h-1.5 w-1.5 rounded-full bg-white/15" />;
 }
 
-// Guidance Agent is the actual decision-maker in the pipeline (the only node
-// that chooses its own next step), so it gets a distinct "brain" treatment
-// on top of the normal card chrome: a blurred radial aura that intensifies
-// while active and settles once it decides, plus the same expanding-ring
-// pulse AgentsSection/ComingSoon already use elsewhere for "this is alive."
+// The agent (wa_agent) is the only node that chooses its own next step, so
+// it gets a distinct "brain" treatment on top of the normal card chrome: a
+// blurred radial aura that intensifies while active and settles once it
+// decides, plus the same expanding-ring pulse AgentsSection/ComingSoon
+// already use elsewhere for "this is alive."
 function AgentCore({ status, color, reducedMotion, justConcluded }) {
   const auraColor = justConcluded ? CONCLUDE_COLOR : color;
   return (
@@ -149,7 +149,7 @@ function AgentCore({ status, color, reducedMotion, justConcluded }) {
 
 function NodeCard({ node, status, big, reducedMotion, t, justConcluded }) {
   const color = STATUS_COLOR[status];
-  const isAgent = node.id === "agent" || node.id === "wa_agent";
+  const isAgent = node.id === "wa_agent";
 
   // Tracks the *transition into* active so a node gets one punchier
   // "arrival" kick the moment it lights up, then settles into the regular
@@ -371,7 +371,7 @@ function EventTicker({ entries, isLive, reducedMotion, t }) {
 function WorkflowLive() {
   const { t } = useLang();
   const reducedMotion = usePrefersReducedMotion();
-  const { connected, nodeStatus, currentLabel, lastRunSummary, waLastRunSummary, lastEventAt } = useWorkflowSocket();
+  const { connected, nodeStatus, currentLabel, lastRunSummary, lastEventAt } = useWorkflowSocket();
 
   const [isLive, setIsLive] = useState(false);
   useEffect(() => {
@@ -421,22 +421,6 @@ function WorkflowLive() {
     return () => clearTimeout(timer);
   }, [isLive, lastRunSummary, reducedMotion]);
 
-  // Lane 2's own conclusion pulse, same shape as lane 1's above but keyed
-  // off waLastRunSummary so a WhatsApp trigger completing never fires lane
-  // 1's agent pulse (or vice versa) — see useWorkflowSocket's split state.
-  const [waJustConcluded, setWaJustConcluded] = useState(false);
-  const prevWaSummaryRef = useRef(null);
-  useEffect(() => {
-    if (!isLive) prevWaSummaryRef.current = null;
-  }, [isLive]);
-  useEffect(() => {
-    if (!isLive || !waLastRunSummary || waLastRunSummary === prevWaSummaryRef.current || reducedMotion) return undefined;
-    prevWaSummaryRef.current = waLastRunSummary;
-    setWaJustConcluded(true);
-    const timer = setTimeout(() => setWaJustConcluded(false), 1300);
-    return () => clearTimeout(timer);
-  }, [isLive, waLastRunSummary, reducedMotion]);
-
   // Rolling local history of real event labels for the ticker — the hook
   // only exposes the single latest label, so we accumulate our own capped
   // window here, keyed off `lastEventAt` so we never double-log a render
@@ -455,7 +439,7 @@ function WorkflowLive() {
     setEventLog((prev) => [...prev, { id: `${lastEventAt}`, label: currentLabel }].slice(-EVENT_LOG_MAX));
   }, [isLive, currentLabel, lastEventAt]);
 
-  const agentNode = NODE_BY_ID.agent;
+  const agentNode = NODE_BY_ID.wa_agent;
   const caption = isLive
     ? currentLabel
     : t(`liveWorkflow.node.${keyOf(DEMO_SEQUENCE[Math.min(demoStep, DEMO_SEQUENCE.length - 1)])}`);
@@ -506,8 +490,8 @@ function WorkflowLive() {
               {/* Ambient atmosphere — the canvas stays faintly alive even
                   between discrete events, not just static except mid-transition.
                   Layered: a vignette to draw focus to center, a core "energy
-                  field" glow centered on the Guidance Agent that breathes
-                  brighter while anything is actually active, drifting brand-color
+                  field" glow centered on the agent that breathes brighter
+                  while anything is actually active, drifting brand-color
                   blobs for depth, and a one-shot warm wash on run conclusion. */}
               <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
                 <div
@@ -578,34 +562,15 @@ function WorkflowLive() {
                 ))}
               </svg>
 
-              {/* Section divider between lane 1 (Guidance Agent, sensor-
-                  triggered) and lane 2 (WhatsApp Agent, autonomous) — makes
-                  the two-lane structure legible at a glance rather than
-                  relying on the viewer to infer it purely from a vertical
-                  gap between two unlabeled clusters of cards. */}
-              <div
-                className="absolute left-0 right-0 flex items-center gap-3 px-2"
-                style={{ top: 605 }}
-                aria-hidden="true"
-              >
-                <span className="h-px flex-1 bg-white/10" />
-                <span className="whitespace-nowrap font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500">
-                  {t("liveWorkflow.section.whatsapp")}
-                </span>
-                <span className="h-px flex-1 bg-white/10" />
-              </div>
-
               {WORKFLOW_NODES.map((node) => (
                 <NodeCard
                   key={node.id}
                   node={node}
                   status={status[node.id] ?? "idle"}
-                  big={node.id === "agent" || node.id === "wa_agent"}
+                  big={node.id === "wa_agent"}
                   reducedMotion={reducedMotion}
                   t={t}
-                  justConcluded={
-                    node.id === "agent" ? justConcluded : node.id === "wa_agent" ? waJustConcluded : false
-                  }
+                  justConcluded={node.id === "wa_agent" ? justConcluded : false}
                 />
               ))}
 

@@ -17,7 +17,7 @@ const GROUP_DOT = {
 const GROUP_ORDER = [
   { key: "signal", labelKey: "liveWorkflow.legend.input" },
   { key: "iris", labelKey: "liveWorkflow.legend.scores" },
-  { key: "vital", labelKey: "liveWorkflow.legend.guidance" },
+  { key: "vital", labelKey: "liveWorkflow.legend.orchestrator" },
   { key: "amber", labelKey: "liveWorkflow.legend.actions" },
 ];
 
@@ -28,8 +28,8 @@ export function AgentFlowSection() {
     <Section
       id="agent-flow"
       eyebrow="Live Under the Hood"
-      title="Watch the pipeline think, in real time."
-      intro="Every reading runs through a real backend pipeline — capture, validation, three parallel organ-health scores — into the Guidance Agent, which decides for itself which of five actions to take. Nothing here is scripted: this is that pipeline's actual event stream, rendered live."
+      title="One agent. Every decision. Live."
+      intro="Every reading, message, and check-in runs through NOVERA's single orchestrator — the same agent screens a sample, writes the report, books the follow-up, and reaches out on WhatsApp, deciding for itself what's actually needed and when. Nothing here is scripted: this is that agent's real event stream, rendered live."
     >
       <div className="glass-card relative overflow-hidden">
         <div

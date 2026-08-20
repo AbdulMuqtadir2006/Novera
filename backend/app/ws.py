@@ -1,13 +1,15 @@
 """Public WebSocket broadcast hub for /ws/pipeline.
 
-Feeds a marketing-homepage diagram that visualizes two independent live
-agents: Guidance Agent (core/guidance_agent.py, `source: "device"` events)
-and WhatsApp Agent (core/whatsapp_agent.py + core/scheduler.py, `source:
-"whatsapp"` events). No auth (this is a public, unauthenticated endpoint by
-design) — every producer is responsible for keeping broadcast payloads free
-of PII and raw biomarker values (phone numbers, patient names, message
-content, biomarker values never belong here — only node/status/coarse-label
-info, same discipline guidance_agent.py already established).
+Feeds a marketing-homepage diagram that visualizes NOVERA's single
+orchestrator, WhatsApp Agent (core/whatsapp_agent.py + core/scheduler.py,
+`source: "whatsapp"` events for every event this module now emits).
+Guidance Agent (core/guidance_agent.py, the old separate `source: "device"`
+lane) was merged into WhatsApp Agent 2026-08-20 and no longer exists — see
+whatsapp_agent.py's module docstring for the merge. No auth (this is a
+public, unauthenticated endpoint by design) — every producer is responsible
+for keeping broadcast payloads free of PII and raw biomarker values (phone
+numbers, patient names, message content, biomarker values never belong
+here — only node/status/coarse-label info).
 
 Minimal by design: a module-level set of connections, connect/disconnect,
 and a broadcast that drops any socket that errors on send (client already

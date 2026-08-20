@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from .. import config, db
-from ..core import color_calibration, guidance_agent, reference_data
+from ..core import color_calibration, reference_data, whatsapp_agent
 from ..deps import require_user
 from ..schemas import ReadingIn
 
@@ -152,12 +152,19 @@ def add_reading(body: ReadingIn, background_tasks: BackgroundTasks):
     )
     out = reference_data.row_to_reading(row)
 
-    # Fire the autonomous guidance agent as a true background task (runs
-    # after this response is already sent — never slows down the ESP32's
-    # POST). guidance_agent.run() re-checks AUTO_AGENT_ENABLED and the
-    # in-flight/60s throttle itself, so when either gates it off nothing
-    # happens here beyond scheduling a no-op coroutine.
-    if config.AUTO_AGENT_ENABLED:
-        background_tasks.add_task(guidance_agent.run, out)
+    # Fire WhatsApp Agent's sensor.reading_received trigger as a true
+    # background task (runs after this response is already sent — never
+    # slows down the ESP32's POST). This replaces guidance_agent.run()
+    # (2026-08-20 orchestrator merge, guidance_agent.py deleted) — WhatsApp
+    # Agent now runs the screening pipeline itself as one of its own tools,
+    # instead of a separate agent handing off to it afterward.
+    # Orphaned/unrequested readings (owner_user_id is None — nobody armed
+    # the shared device for anyone) have no one to screen for, same as
+    # guidance_agent.run() used to skip. handle_trigger() re-checks its own
+    # in-flight/60s throttle itself, so gating on that isn't needed here.
+    if config.AUTO_AGENT_ENABLED and owner_user_id is not None:
+        owner = db.fetch_one("SELECT id, email, name, phone FROM users WHERE id = %s", (owner_user_id,))
+        if owner:
+            background_tasks.add_task(whatsapp_agent.handle_trigger, "sensor.reading_received", owner)
 
     return out
