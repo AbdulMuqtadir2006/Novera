@@ -117,5 +117,14 @@ SENSOR_STABILIZATION_ENABLED = os.getenv("SENSOR_STABILIZATION_ENABLED", "true")
 # underlying scoring is trustworthy enough to actually flag people again.
 SUPPRESS_SCREENING_FLAGS = os.getenv("SUPPRESS_SCREENING_FLAGS", "true").strip().lower() != "false"
 
+# ---- WhatsApp follow-up delay (2026-08-22, Hassan's call) ----
+# sensor.reading_received used to fire the WhatsApp Agent (screening + any
+# message) immediately on every reading. Delayed so a proactive message
+# reads as a genuine follow-up, not an instant auto-reply to something the
+# patient is still holding the strip for. Delays the whole run, not just the
+# send — see routers/readings.py's _delayed_reading_trigger — so the
+# homepage's live pipeline diagram lights up on the same delay too.
+READING_FOLLOWUP_DELAY_SECONDS = max(0, int(os.getenv("READING_FOLLOWUP_DELAY_SECONDS", "600")))
+
 # ---- misc ----
 SERVICE_PORT = int(os.getenv("PORT", "8000"))

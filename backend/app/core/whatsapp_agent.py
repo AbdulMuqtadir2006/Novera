@@ -677,7 +677,13 @@ def _build_tools(
 
 _TRIGGER_DESCRIPTION = {
     "sensor.reading_received": (
-        "A new saliva reading just arrived from the sensor. Call run_screening_pipeline first — "
+        "A new saliva reading just arrived from the sensor. This run only started after a deliberate "
+        f"~{config.READING_FOLLOWUP_DELAY_SECONDS // 60}-minute delay since the reading itself (see "
+        "config.READING_FOLLOWUP_DELAY_SECONDS) — the patient is no longer sitting there with the "
+        "strip, so if you do send anything, open by addressing them by name and explicitly say this "
+        "is a follow-up message from NOVERA's AI about their recent reading (e.g. \"Hi {name}, this "
+        "is a follow-up from NOVERA's AI about your recent reading...\") — never assume they're still "
+        "thinking about it or word it like an instant auto-reply. Call run_screening_pipeline first — "
         "never guess an organ or a flag yourself, and never skip straight to messaging the patient "
         "before you have a real result. Based on what it returns: generate_report is worth calling "
         "for medium/high flags, and often for low flags too. If a medium/high flag comes back, you "
