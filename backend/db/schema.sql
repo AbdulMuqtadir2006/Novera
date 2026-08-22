@@ -416,17 +416,26 @@ CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items (order_id);
 -- exact same liver-panel result under its correct name now, not a different
 -- fact.
 -- ---------------------------------------------------------------------------
-UPDATE reference_ranges SET organ = 'LIVER' WHERE organ = 'STOMACH';
-UPDATE screening_cases SET ai_prediction = 'LIVER' WHERE ai_prediction = 'STOMACH';
-UPDATE screening_cases SET human_confirmation = 'LIVER' WHERE human_confirmation = 'STOMACH';
-UPDATE confirmed_cases SET organ = 'LIVER' WHERE organ = 'STOMACH';
-UPDATE decision_audit SET final_prediction = 'LIVER' WHERE final_prediction = 'STOMACH';
-
+-- Bug fix (2026-08-22): these DROP CONSTRAINTs used to run AFTER the UPDATEs
+-- below, so on any database still holding the pre-rename constraints (every
+-- deploy since this migration was written), the very first UPDATE — setting
+-- organ = 'LIVER' on a still-'STOMACH'-only CHECK constraint — threw an
+-- uncaught CheckViolation. init_db.py's pre-deploy step has been crashing on
+-- this exact statement ever since, so Railway never promoted a single deploy
+-- past this migration; the old pre-rename container just kept serving
+-- traffic indefinitely. Constraints must come off before the data that
+-- violates them gets written, not after.
 ALTER TABLE reference_ranges DROP CONSTRAINT IF EXISTS reference_ranges_organ_check;
 ALTER TABLE screening_cases DROP CONSTRAINT IF EXISTS screening_cases_ai_prediction_check;
 ALTER TABLE screening_cases DROP CONSTRAINT IF EXISTS screening_cases_human_confirmation_check;
 ALTER TABLE confirmed_cases DROP CONSTRAINT IF EXISTS confirmed_cases_organ_check;
 ALTER TABLE decision_audit DROP CONSTRAINT IF EXISTS decision_audit_final_prediction_check;
+
+UPDATE reference_ranges SET organ = 'LIVER' WHERE organ = 'STOMACH';
+UPDATE screening_cases SET ai_prediction = 'LIVER' WHERE ai_prediction = 'STOMACH';
+UPDATE screening_cases SET human_confirmation = 'LIVER' WHERE human_confirmation = 'STOMACH';
+UPDATE confirmed_cases SET organ = 'LIVER' WHERE organ = 'STOMACH';
+UPDATE decision_audit SET final_prediction = 'LIVER' WHERE final_prediction = 'STOMACH';
 
 DO $$
 BEGIN
