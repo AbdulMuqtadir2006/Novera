@@ -137,7 +137,7 @@ class ChatOut(BaseModel):
 class FinalDecision(BaseModel):
     """The only output accepted from the OpenRouter screening decision call."""
 
-    prediction: Literal["KIDNEY", "STOMACH", "ORAL"]
+    prediction: Literal["KIDNEY", "LIVER", "ORAL"]
     confidence: float = Field(ge=0.0, le=1.0)
     reason: str = Field(min_length=15, max_length=600)
 

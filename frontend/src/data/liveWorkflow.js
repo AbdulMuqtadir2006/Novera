@@ -14,7 +14,7 @@
 // screening.completed hand-off between them; now it's one continuous flow —
 // 5 triggers (including the new sensor.reading_received, replacing the old
 // hand-off) feed one brain, which can call run_screening_pipeline (validate
-// -> score KIDNEY/STOMACH/ORAL, shown as the same forward chain the old
+// -> score KIDNEY/LIVER/ORAL, shown as the same forward chain the old
 // lane 1 used) as one of its own tools, then decide what to do next from
 // there — report, retest, book, message, or stay quiet — all in one run.
 //
@@ -30,6 +30,7 @@ import {
   ShieldCheck,
   Droplet,
   Utensils,
+  Filter,
   Smile,
   MessageCircle,
   FileText,
@@ -74,7 +75,7 @@ export const WORKFLOW_NODES = [
   // (the single agent, as a tool) changed.
   { id: "validate", labelKey: "liveWorkflow.node.validate", icon: ShieldCheck, x: 300, y: 155, w: 140, h: 56, group: "iris" },
   { id: "score_kidney", labelKey: "liveWorkflow.node.scoreKidney", icon: Droplet, x: 500, y: 75, w: 164, h: 56, group: "iris" },
-  { id: "score_stomach", labelKey: "liveWorkflow.node.scoreStomach", icon: Utensils, x: 500, y: 155, w: 164, h: 56, group: "iris" },
+  { id: "score_liver", labelKey: "liveWorkflow.node.scoreLiver", icon: Filter, x: 500, y: 155, w: 164, h: 56, group: "iris" },
   { id: "score_oral", labelKey: "liveWorkflow.node.scoreOral", icon: Smile, x: 500, y: 235, w: 164, h: 56, group: "iris" },
 
   // The single orchestrator — every trigger feeds it, it decides everything.
@@ -116,7 +117,7 @@ export const WHATSAPP_TOOL_NODE_IDS = [
 // but still need to reset to idle at the start of every new trigger, same as
 // the tool nodes — otherwise a leftover "success" from a past reading trigger
 // would still be showing when e.g. a meal check-in trigger fires next.
-export const SCREENING_SUBSTEP_NODE_IDS = ["validate", "score_kidney", "score_stomach", "score_oral"];
+export const SCREENING_SUBSTEP_NODE_IDS = ["validate", "score_kidney", "score_liver", "score_oral"];
 // Every node except the brain itself — what useWorkflowSocket resets to idle
 // whenever a new trigger starts.
 export const RESETTABLE_NODE_IDS = [...WHATSAPP_TRIGGER_NODE_IDS, ...SCREENING_SUBSTEP_NODE_IDS, ...WHATSAPP_TOOL_NODE_IDS];
@@ -127,10 +128,10 @@ export const ALL_NODE_IDS = WORKFLOW_NODES.map((n) => n.id);
 export const WORKFLOW_EDGES = [
   { id: "reading-validate", from: "wa_trigger_reading", to: "validate" },
   { id: "validate-kidney", from: "validate", to: "score_kidney" },
-  { id: "validate-stomach", from: "validate", to: "score_stomach" },
+  { id: "validate-liver", from: "validate", to: "score_liver" },
   { id: "validate-oral", from: "validate", to: "score_oral" },
   { id: "kidney-agent", from: "score_kidney", to: "wa_agent" },
-  { id: "stomach-agent", from: "score_stomach", to: "wa_agent" },
+  { id: "liver-agent", from: "score_liver", to: "wa_agent" },
   { id: "oral-agent", from: "score_oral", to: "wa_agent" },
 
   { id: "wa-appointment-agent", from: "wa_trigger_appointment", to: "wa_agent" },
@@ -167,7 +168,7 @@ export const DEMO_SEQUENCE = [
   "wa_trigger_reading",
   "validate",
   "score_kidney",
-  "score_stomach",
+  "score_liver",
   "score_oral",
   "wa_agent",
   "wa_tool_report",

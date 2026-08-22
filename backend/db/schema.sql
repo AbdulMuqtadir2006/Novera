@@ -7,7 +7,7 @@
 
 CREATE TABLE IF NOT EXISTS reference_ranges (
     id          SERIAL PRIMARY KEY,
-    organ       TEXT NOT NULL CHECK (organ IN ('KIDNEY', 'STOMACH', 'ORAL')),
+    organ       TEXT NOT NULL CHECK (organ IN ('KIDNEY', 'LIVER', 'ORAL')),
     biomarker   TEXT NOT NULL CHECK (biomarker IN ('ph', 'urea_mg_dl', 'creatinine_umol_l', 'temperature_c')),
     min_value   DOUBLE PRECISION NOT NULL,
     max_value   DOUBLE PRECISION NOT NULL,
@@ -25,10 +25,10 @@ CREATE TABLE IF NOT EXISTS screening_cases (
     temperature_c       DOUBLE PRECISION NOT NULL,
     status              TEXT NOT NULL DEFAULT 'NEW'
                         CHECK (status IN ('NEW', 'PROCESSING', 'COMPLETED', 'RETEST_REQUIRED', 'ERROR')),
-    ai_prediction       TEXT CHECK (ai_prediction IS NULL OR ai_prediction IN ('KIDNEY', 'STOMACH', 'ORAL')),
+    ai_prediction       TEXT CHECK (ai_prediction IS NULL OR ai_prediction IN ('KIDNEY', 'LIVER', 'ORAL')),
     ai_confidence       DOUBLE PRECISION,
     ai_reason           TEXT,
-    human_confirmation  TEXT CHECK (human_confirmation IS NULL OR human_confirmation IN ('KIDNEY', 'STOMACH', 'ORAL')),
+    human_confirmation  TEXT CHECK (human_confirmation IS NULL OR human_confirmation IN ('KIDNEY', 'LIVER', 'ORAL')),
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -38,7 +38,7 @@ CREATE INDEX IF NOT EXISTS idx_screening_cases_status_id
 CREATE TABLE IF NOT EXISTS confirmed_cases (
     id            SERIAL PRIMARY KEY,
     reading_id    INTEGER NOT NULL UNIQUE REFERENCES screening_cases(id) ON DELETE CASCADE,
-    organ         TEXT NOT NULL CHECK (organ IN ('KIDNEY', 'STOMACH', 'ORAL')),
+    organ         TEXT NOT NULL CHECK (organ IN ('KIDNEY', 'LIVER', 'ORAL')),
     notes         TEXT,
     confirmed_by  TEXT,
     confirmed_at  TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS decision_audit (
     llm_used                  SMALLINT NOT NULL CHECK (llm_used IN (0, 1)),
     specialist_results_json   JSONB NOT NULL,
     llm_result_json           JSONB,
-    final_prediction          TEXT NOT NULL CHECK (final_prediction IN ('KIDNEY', 'STOMACH', 'ORAL')),
+    final_prediction          TEXT NOT NULL CHECK (final_prediction IN ('KIDNEY', 'LIVER', 'ORAL')),
     final_confidence          DOUBLE PRECISION,
     final_reason              TEXT NOT NULL,
     created_at                TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -402,3 +402,47 @@ CREATE TABLE IF NOT EXISTS order_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items (order_id);
+
+-- ---------------------------------------------------------------------------
+-- Organ rename: STOMACH -> LIVER (2026-08-20). The screening panel's third
+-- organ was always meant to read "Liver" in the workflow, not "Stomach" —
+-- same 4 biomarkers/reference ranges, just the wrong label. The CREATE TABLE
+-- statements above already say LIVER for fresh installs; on a database that
+-- already has these tables (CREATE TABLE IF NOT EXISTS no-ops on those), the
+-- CHECK constraints and any already-stored 'STOMACH' values need moving by
+-- hand — same guarded, idempotent style as appointments_status_check above.
+-- Relabels history rather than leaving 'STOMACH' as an orphaned legacy value
+-- forever: a past screening that predicted the old "stomach" organ is the
+-- exact same liver-panel result under its correct name now, not a different
+-- fact.
+-- ---------------------------------------------------------------------------
+UPDATE reference_ranges SET organ = 'LIVER' WHERE organ = 'STOMACH';
+UPDATE screening_cases SET ai_prediction = 'LIVER' WHERE ai_prediction = 'STOMACH';
+UPDATE screening_cases SET human_confirmation = 'LIVER' WHERE human_confirmation = 'STOMACH';
+UPDATE confirmed_cases SET organ = 'LIVER' WHERE organ = 'STOMACH';
+UPDATE decision_audit SET final_prediction = 'LIVER' WHERE final_prediction = 'STOMACH';
+
+ALTER TABLE reference_ranges DROP CONSTRAINT IF EXISTS reference_ranges_organ_check;
+ALTER TABLE screening_cases DROP CONSTRAINT IF EXISTS screening_cases_ai_prediction_check;
+ALTER TABLE screening_cases DROP CONSTRAINT IF EXISTS screening_cases_human_confirmation_check;
+ALTER TABLE confirmed_cases DROP CONSTRAINT IF EXISTS confirmed_cases_organ_check;
+ALTER TABLE decision_audit DROP CONSTRAINT IF EXISTS decision_audit_final_prediction_check;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'reference_ranges_organ_check') THEN
+        ALTER TABLE reference_ranges ADD CONSTRAINT reference_ranges_organ_check CHECK (organ IN ('KIDNEY', 'LIVER', 'ORAL'));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'screening_cases_ai_prediction_check') THEN
+        ALTER TABLE screening_cases ADD CONSTRAINT screening_cases_ai_prediction_check CHECK (ai_prediction IS NULL OR ai_prediction IN ('KIDNEY', 'LIVER', 'ORAL'));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'screening_cases_human_confirmation_check') THEN
+        ALTER TABLE screening_cases ADD CONSTRAINT screening_cases_human_confirmation_check CHECK (human_confirmation IS NULL OR human_confirmation IN ('KIDNEY', 'LIVER', 'ORAL'));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'confirmed_cases_organ_check') THEN
+        ALTER TABLE confirmed_cases ADD CONSTRAINT confirmed_cases_organ_check CHECK (organ IN ('KIDNEY', 'LIVER', 'ORAL'));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'decision_audit_final_prediction_check') THEN
+        ALTER TABLE decision_audit ADD CONSTRAINT decision_audit_final_prediction_check CHECK (final_prediction IN ('KIDNEY', 'LIVER', 'ORAL'));
+    END IF;
+END $$;

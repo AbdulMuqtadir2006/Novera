@@ -11,7 +11,7 @@ import { useLang } from "../i18n/LanguageContext";
 import { useAuth } from "../auth/AuthContext";
 import { PipelineVisualizer } from "../components/appointments/PipelineVisualizer";
 
-const ORGAN_COLORS = { KIDNEY: "#28CFE0", STOMACH: "#F2A93E", ORAL: "#3DDC97" };
+const ORGAN_COLORS = { KIDNEY: "#28CFE0", LIVER: "#F2A93E", ORAL: "#3DDC97" };
 
 function OrganAnalysis({ t }) {
   const [result, setResult] = useState(null);

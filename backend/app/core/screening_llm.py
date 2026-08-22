@@ -143,7 +143,7 @@ def _build_investigative_tools(reading: dict[str, Any]) -> list:
     scope, mirroring guidance_agent.py's per-run _build_tools(state) pattern."""
 
     @tool
-    def get_organ_reference_ranges(organ: Literal["KIDNEY", "STOMACH", "ORAL"]) -> dict:
+    def get_organ_reference_ranges(organ: Literal["KIDNEY", "LIVER", "ORAL"]) -> dict:
         """Look up the configured min/max/weight reference range for each biomarker
         (ph, urea_mg_dl, creatinine_umol_l, temperature_c) for one organ. Use this to
         double-check a specialist result's range_score against the actual configured
@@ -151,7 +151,7 @@ def _build_investigative_tools(reading: dict[str, Any]) -> list:
         return _tool_get_organ_reference_ranges(organ)
 
     @tool
-    def get_closest_confirmed_cases(organ: Literal["KIDNEY", "STOMACH", "ORAL"], limit: int = 5) -> dict:
+    def get_closest_confirmed_cases(organ: Literal["KIDNEY", "LIVER", "ORAL"], limit: int = 5) -> dict:
         """Re-run the human-confirmed-case similarity search for one organ with a
         custom result count (default 5). specialist_results already includes each
         organ's top-3 closest confirmed cases; call this only if you genuinely want
@@ -212,7 +212,7 @@ def decide(reading: dict[str, Any], specialist_results: list[dict[str, Any]]) ->
     messages: list = [
         SystemMessage(content=(
             "You are the NOVERA final screening decision component. This is experimental "
-            "screening support, not a confirmed diagnosis. The Kidney, Stomach, and Oral "
+            "screening support, not a confirmed diagnosis. The Kidney, Liver, and Oral "
             "specialist results were calculated before this call using project reference "
             "ranges and limited human-confirmed SQL memory. Use only the supplied evidence "
             "plus, optionally, the investigative tools below — never invent medical "
@@ -225,7 +225,7 @@ def decide(reading: dict[str, Any], specialist_results: list[dict[str, Any]]) ->
             "specialist_results. Call at most one or two of these, only if they would "
             "actually change your confidence, then decide.\n\n"
             "To finish, call exactly one of two tools: FinalDecision to make exactly one "
-            "final prediction (KIDNEY, STOMACH, or ORAL — never MULTIPLE, "
+            "final prediction (KIDNEY, LIVER, or ORAL — never MULTIPLE, "
             "NO_CLEAR_PATTERN, or any other label), whose reason must mention the range "
             "score, similarity score, and confirmed-case support that drove the choice; "
             "or flag_for_human_review if, after considering the evidence, you genuinely "

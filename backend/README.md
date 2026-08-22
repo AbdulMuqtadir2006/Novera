@@ -114,4 +114,4 @@ everything from the environment.
 This is a research-stage screening platform, not a diagnostic device. No trained ML model,
 XGBoost, scikit-learn, or `.pkl` file is used anywhere — every prediction is reference-range score
 + similarity score + exactly one OpenRouter decision call, and the final label is always exactly
-one of `KIDNEY`, `STOMACH`, `ORAL`.
+one of `KIDNEY`, `LIVER`, `ORAL`.

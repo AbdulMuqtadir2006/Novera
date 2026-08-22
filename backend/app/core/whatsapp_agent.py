@@ -127,7 +127,7 @@ _TOOL_TO_NODE = {
     # orchestrator merge) — the generic per-tool broadcast below is enough for
     # these two, same as every other tool here. run_screening_pipeline is
     # deliberately NOT mapped — it broadcasts its own internal sub-steps
-    # (validate/score_kidney/score_stomach/score_oral) directly, since one
+    # (validate/score_kidney/score_liver/score_oral) directly, since one
     # coarse start/success pair wouldn't show the real work happening inside it.
     "generate_report": "wa_tool_report",
     "request_retest": "wa_tool_retest",
@@ -427,7 +427,7 @@ def _build_tools(
     @tool
     def send_appointment_offer(organ: str) -> str:
         """Offer the patient a real clinic appointment for a specific flagged
-        organ system ('KIDNEY', 'STOMACH', or 'ORAL' — get this from
+        organ system ('KIDNEY', 'LIVER', or 'ORAL' — get this from
         get_patient_facts' latest screening result, never guess it). Sends a
         real message (free-form if the patient messaged in the last 24h,
         otherwise a pre-approved template automatically — you don't choose
@@ -549,7 +549,7 @@ def _build_tools(
     def run_screening_pipeline() -> str:
         """Claim the latest saliva reading into a new screening case and run
         the deterministic organ-screening pipeline (validate -> score
-        KIDNEY/STOMACH/ORAL -> single screening decision call). Call this
+        KIDNEY/LIVER/ORAL -> single screening decision call). Call this
         first when triggered by a new sensor reading (sensor.reading_received)
         — it's the only source of the organ prediction, confidence, and flag.
         Don't call it for any other trigger, and don't call it twice in one run."""
@@ -588,7 +588,7 @@ def _build_tools(
 
         values = {b: float(case_row[b]) for b in scoring.BIOMARKERS}
         engine = scoring.get_engine()
-        node_map = {"KIDNEY": "score_kidney", "STOMACH": "score_stomach", "ORAL": "score_oral"}
+        node_map = {"KIDNEY": "score_kidney", "LIVER": "score_liver", "ORAL": "score_oral"}
         specialist_results = []
         for organ in scoring.ORGANS:
             node = node_map[organ]
@@ -712,12 +712,21 @@ _TRIGGER_DESCRIPTION = {
 def _system_prompt(user: Optional[dict[str, Any]], lang: str, trigger: str) -> str:
     lang_name = "Arabic" if lang == "ar" else "English"
     registered_note = (
-        "This phone number is linked to a registered patient account."
+        (
+            f"This phone number is linked to a registered patient account. Their name on file is "
+            f"{user.get('name')!r} — use it sometimes to address them directly (e.g. an opening "
+            "greeting), not in every single message, so it reads as natural rather than robotic."
+            if user.get("name") else
+            "This phone number is linked to a registered patient account, but no name is on file "
+            "for them — just address them generically."
+        )
         if user else
         "This phone number is NOT linked to any registered patient account, so there are no "
         "personal facts to retrieve for it — get_patient_facts will say so if called. Your reply "
         f"MUST include this exact signup link so they can register with this same phone number: "
-        f"{config.SIGNUP_URL}"
+        f"{config.SIGNUP_URL} — send it as plain text, never wrapped in markdown bold/italic "
+        "(e.g. **like this** or _like this_), since that breaks WhatsApp's link auto-detection "
+        "and the patient won't be able to tap it."
     )
     if trigger == "whatsapp.inbound":
         wake_reason = "A patient just sent you a WhatsApp message — see the message below."
@@ -763,7 +772,10 @@ def _system_prompt(user: Optional[dict[str, Any]], lang: str, trigger: str) -> s
         f"entirely in {lang_name}. This is screening support, not medical advice. Meta's WhatsApp API "
         "only allows free-form replies within 24 hours of the patient's last message — that window is "
         "enforced in code (proactive send tools automatically fall back to an approved template outside "
-        "it), not by you, but don't tell the patient you can message them again anytime unprompted."
+        "it), not by you, but don't tell the patient you can message them again anytime unprompted. "
+        "Any link or URL in your reply (signup link, map link, or otherwise) must be sent as plain "
+        "text, never wrapped in markdown bold/italic (**like this** or _like this_) — that breaks "
+        "WhatsApp's tap-to-open link detection."
     )
 
 

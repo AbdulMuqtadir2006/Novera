@@ -2,7 +2,7 @@ import { motion } from "framer-motion";
 import { Check, X, Loader2 } from "lucide-react";
 import { useLang } from "../../i18n/LanguageContext";
 
-const SCORE_ORGANS = ["score:KIDNEY", "score:STOMACH", "score:ORAL"];
+const SCORE_ORGANS = ["score:KIDNEY", "score:LIVER", "score:ORAL"];
 
 // status.good / status.watch(unused here) / status.attention — same tokens
 // StatusBadge already uses, so passed/failed reads consistently with the
@@ -60,7 +60,7 @@ function Connector({ active, failed }) {
 }
 
 // Real hierarchy, not a flat pipe: Validate -> a grouped parallel Score step
-// (Kidney/Stomach/Oral, the three sub-agents that actually run under it) ->
+// (Kidney/Liver/Oral, the three sub-agents that actually run under it) ->
 // Decide -> Persist. Node/connector state comes straight from real backend
 // SSE events (see lib/api.js streamPredictOrgan) — idle/running/passed/failed
 // — never a timer. A failed step (validation error or the OpenRouter call
@@ -90,7 +90,7 @@ export function PipelineVisualizer({ steps }) {
           </span>
           <div className="flex gap-3 sm:gap-4">
             <NodeDot label={t("appt.stepKidney")} state={s("score:KIDNEY")} />
-            <NodeDot label={t("appt.stepStomach")} state={s("score:STOMACH")} />
+            <NodeDot label={t("appt.stepLiver")} state={s("score:LIVER")} />
             <NodeDot label={t("appt.stepOral")} state={s("score:ORAL")} />
           </div>
         </div>

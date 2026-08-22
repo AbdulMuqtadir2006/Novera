@@ -15,7 +15,7 @@ from typing import Any, Optional
 from .. import config, db
 from . import reference_data
 
-ORGANS = ("KIDNEY", "STOMACH", "ORAL")
+ORGANS = ("KIDNEY", "LIVER", "ORAL")
 BIOMARKERS = ("ph", "urea_mg_dl", "creatinine_umol_l", "temperature_c")
 CREATININE_MGDL_TO_UMOLL = 88.42
 
@@ -28,7 +28,7 @@ DEFAULT_REFERENCE_RANGES: dict[str, dict[str, tuple[float, float, float]]] = {
         "creatinine_umol_l": (18.0, 25.0, 1.3),
         "temperature_c": (35.0, 37.0, 0.8),
     },
-    "STOMACH": {
+    "LIVER": {
         "ph": (6.5, 7.6, 1.2),
         "urea_mg_dl": (20.0, 45.0, 1.0),
         "creatinine_umol_l": (18.0, 40.0, 0.9),
@@ -105,7 +105,7 @@ def _value_fit(value: float, spec: RangeSpec) -> tuple[float, str, float]:
     scored as strong evidence of a problem (0.85 already clears the "high"
     flag threshold of 0.80), while sitting at the edge of normal scored
     *lower*. That's inverted from what "normal range" should mean, and since
-    KIDNEY/STOMACH/ORAL's normal bands overlap heavily, it meant a
+    KIDNEY/LIVER/ORAL's normal bands overlap heavily, it meant a
     genuinely healthy reading would still get forced onto whichever organ
     it happened to be nearest the center of, at flag=medium/high — which is
     exactly what triggers the WhatsApp outreach guarantee's appointment
