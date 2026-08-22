@@ -65,7 +65,6 @@ class ChatSendReq(BaseModel):
 
 # ---- appointments ----
 class OfferReq(BaseModel):
-    to: Optional[str] = None
     simulate: bool = True
 
 

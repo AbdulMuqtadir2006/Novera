@@ -18,7 +18,13 @@ def get_clinic(user: dict = Depends(require_user)):
 
 @router.post("/appointment/offer")
 def appointment_offer(body: OfferReq, user: dict = Depends(require_user)):
-    phone = user.get("phone") or body.to
+    # Bug fix (2026-08-22): used to fall back to client-supplied body.to
+    # whenever the caller's own account had no phone on file, letting any
+    # authenticated user direct a real WhatsApp send at an arbitrary number
+    # they don't own. Only ever send to the caller's own registered phone —
+    # send_offer's own to=None handling already falls back to config.WHATSAPP_TO
+    # (a fixed test recipient) if this account has none, same as before.
+    phone = user.get("phone")
     to = normalize_phone(phone) if phone else None
     case_row = db.fetch_one("SELECT case_id FROM screening_cases WHERE user_id = %s ORDER BY id DESC LIMIT 1", (user["id"],))
     case_id = case_row["case_id"] if case_row else None
@@ -36,7 +42,8 @@ def appointment_reply(body: ReplyReq, user: dict = Depends(require_user)):
     if not message:
         raise HTTPException(status_code=400, detail="empty message")
     try:
-        return appointment_graph.handle_reply(message, body.lang)
+        phone = normalize_phone(user["phone"]) if user.get("phone") else None
+        return appointment_graph.handle_reply(message, body.lang, user_id=user["id"], phone=phone)
     except Exception as exc:
         print(f"[appointments] handle_reply failed: {exc}")
         raise HTTPException(status_code=502, detail="Could not process the reply. Try again.")

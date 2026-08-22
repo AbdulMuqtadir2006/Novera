@@ -44,8 +44,13 @@ def send_message(body: str, to: Optional[str] = None, simulate: bool = False) ->
         return {"delivered": True, "simulated": False, "message_id": message_id, "to": to}
     except Exception as exc:
         detail = getattr(getattr(exc, "response", None), "text", str(exc))
-        print(f"[whatsapp] send failed, simulating: {detail}")
-        return {"delivered": False, "simulated": True, "reason": detail, "to": to, "body": body}
+        print(f"[whatsapp] send failed: {detail}")
+        # Bug fix (2026-08-22): this was returning simulated=True on a genuine
+        # attempted-and-failed send, mislabeling it the same as a deliberate/
+        # not-configured no-op — inconsistent with send_document and
+        # send_template_message below, which both correctly report
+        # simulated=False for the equivalent real-failure case.
+        return {"delivered": False, "simulated": False, "reason": detail, "to": to, "body": body}
 
 
 def send_document(

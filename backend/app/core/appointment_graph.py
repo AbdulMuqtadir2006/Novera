@@ -25,6 +25,8 @@ RESCHEDULE_WORDS = {"reschedule", "change", "another", "different", "move", "ت�
 class ApptState(TypedDict, total=False):
     message: str
     lang: str
+    user_id: Optional[int]
+    phone: Optional[str]
     intent: str
     booking: Optional[dict[str, Any]]
     reply: str
@@ -67,7 +69,7 @@ def _route(state: ApptState) -> str:
 
 
 def _book(state: ApptState) -> ApptState:
-    result = booking.find_and_book_slot(user_id=None, phone=None, channel="whatsapp")
+    result = booking.find_and_book_slot(user_id=state.get("user_id"), phone=state.get("phone"), channel="whatsapp")
     return {"booking": result}
 
 
@@ -112,8 +114,14 @@ def _graph():
     return _GRAPH
 
 
-def handle_reply(message: str, lang: str = "en") -> dict[str, Any]:
-    final = _graph().invoke({"message": message, "lang": lang})
+def handle_reply(
+    message: str, lang: str = "en", user_id: Optional[int] = None, phone: Optional[str] = None,
+) -> dict[str, Any]:
+    """user_id/phone (added 2026-08-22, bug fix): previously always booked
+    with user_id=None, phone=None regardless of who called this — a booking
+    made through the Appointments page's reply box was fully anonymous, never
+    showing up in that same patient's GET /appointment/bookings."""
+    final = _graph().invoke({"message": message, "lang": lang, "user_id": user_id, "phone": phone})
     return {"reply": final.get("reply", ""), "intent": final.get("intent"), "booking": final.get("booking")}
 
 

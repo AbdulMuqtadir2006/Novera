@@ -2,18 +2,25 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from .. import db
 from ..core import content_llm, reference_data
 from ..deps import require_user
+from ..rate_limit import limiter
 from ..schemas import ChatSendReq, LangReq, SelfCareReq
 
 router = APIRouter()
 
 
+# Bug fix (2026-08-22): none of these OpenRouter-calling endpoints had any
+# rate limit (only auth.py's signup/login did) — an authenticated caller
+# could loop any of them with no server-side throttle, driving real
+# OpenRouter cost. 20/minute is generous for normal interactive use, tight
+# enough to block a scripted loop.
 @router.post("/voice-script")
-def voice_script(body: LangReq, user: dict = Depends(require_user)):
+@limiter.limit("20/minute")
+def voice_script(request: Request, body: LangReq, user: dict = Depends(require_user)):
     row = reference_data.get_latest_row(user["id"])
     if not row:
         raise HTTPException(status_code=404, detail="no readings")
@@ -21,7 +28,8 @@ def voice_script(body: LangReq, user: dict = Depends(require_user)):
 
 
 @router.post("/report")
-def report(body: LangReq, user: dict = Depends(require_user)):
+@limiter.limit("20/minute")
+def report(request: Request, body: LangReq, user: dict = Depends(require_user)):
     row = reference_data.get_latest_row(user["id"])
     if not row:
         raise HTTPException(status_code=404, detail="no readings")
@@ -29,7 +37,8 @@ def report(body: LangReq, user: dict = Depends(require_user)):
 
 
 @router.post("/self-care")
-def self_care(body: SelfCareReq, user: dict = Depends(require_user)):
+@limiter.limit("20/minute")
+def self_care(request: Request, body: SelfCareReq, user: dict = Depends(require_user)):
     if not body.force:
         existing = reference_data.get_self_care_plan(user["id"])
         if existing:
@@ -50,7 +59,8 @@ def get_chat(user: dict = Depends(require_user)):
 
 
 @router.post("/chat")
-def send_chat(body: ChatSendReq, user: dict = Depends(require_user)):
+@limiter.limit("30/minute")
+def send_chat(request: Request, body: ChatSendReq, user: dict = Depends(require_user)):
     message = body.message.strip()
     if not message:
         raise HTTPException(status_code=400, detail="empty message")

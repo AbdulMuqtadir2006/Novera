@@ -16,12 +16,13 @@ import logging
 import secrets
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
 from .. import config, db
 from ..core import catalog, thawani
 from ..deps import get_current_user
+from ..rate_limit import limiter
 from ..schemas import CheckoutReq
 
 logger = logging.getLogger(__name__)
@@ -60,7 +61,8 @@ def _order_out(order: dict, items: list[dict]) -> dict:
 
 
 @router.post("/orders/checkout", status_code=201)
-def checkout(body: CheckoutReq, user: dict | None = Depends(get_current_user)):
+@limiter.limit("10/hour")
+def checkout(request: Request, body: CheckoutReq, user: dict | None = Depends(get_current_user)):
     if not config.THAWANI_ENABLED:
         raise HTTPException(
             status_code=503,

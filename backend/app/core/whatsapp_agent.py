@@ -4,11 +4,13 @@ Two entry points, one shared brain:
   - handle_inbound(): reactive — a patient sent a message (whatsapp.inbound
     trigger). Always within the 24h window by definition (they just messaged).
   - handle_trigger(): proactive — woken by something that isn't a patient
-    message (screening.completed, appointment.completed, mealtime.checkin,
-    wellness.checkin). Requires a resolved, registered `user` (a phone number
-    a real account is tied to) since there's no inbound message to resolve
-    one from. Gated by the 24h window in code (whatsapp_context/whatsapp_
-    templates), never left to the model's judgment (spec §5).
+    message (sensor.reading_received, reading.followup, appointment.completed,
+    mealtime.checkin, wellness.checkin — see PROACTIVE_TRIGGERS below).
+    Requires a resolved, registered `user` (a phone number a real account is
+    tied to) since there's no inbound message to resolve one from, except
+    sensor.reading_received itself (see handle_trigger's own docstring).
+    Gated by the 24h window in code (whatsapp_context/whatsapp_templates),
+    never left to the model's judgment (spec §5).
 
 Being triggered does NOT mean it has to message the patient — restraint is
 part of the design (spec §3.3): the model can call get_patient_facts, decide

@@ -156,7 +156,10 @@ export default function Dashboard() {
   const [adding, setAdding] = useState(false);
   const [sampleError, setSampleError] = useState(false);
   const { reading, loading } = useLatestReading(refresh);
-  const { history } = useReadingHistory(days === 9999 ? 30 : days, refresh);
+  // Bug fix (2026-08-22): "All" (days=9999) was requesting the same 30 days
+  // as the 30-day option — silently identical charts. Backend caps at 365
+  // (routers/readings.py's history()), so that's the real "everything".
+  const { history } = useReadingHistory(days === 9999 ? 365 : days, refresh);
 
   const trends = useMemo(() => {
     const out = {};

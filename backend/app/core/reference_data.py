@@ -56,10 +56,10 @@ def row_to_reading(row: dict[str, Any]) -> dict[str, Any]:
     timestamp = row["timestamp"]
     return {
         "id": row["id"],
-        # Multi-tenant (2026-08-19) — carried through so guidance_agent.py's
-        # screening.completed hand-off knows which single user to notify,
-        # without a second DB round trip. None for an orphaned/unrequested
-        # capture (see routers/readings.py's POST /readings).
+        # Multi-tenant (2026-08-19) — carried through so whatsapp_agent.py's
+        # sensor.reading_received trigger knows which single user to screen/
+        # notify, without a second DB round trip. None for an orphaned/
+        # unrequested capture (see routers/readings.py's POST /readings).
         "user_id": row.get("user_id"),
         "timestamp": timestamp.isoformat() if hasattr(timestamp, "isoformat") else timestamp,
         "metrics": metrics,

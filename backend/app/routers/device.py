@@ -44,7 +44,7 @@ def ping(body: DevicePingIn):
 
 
 @router.get("/device/status")
-def status():
+def status(user: dict = Depends(require_user)):
     row = db.fetch_one("SELECT ssid, last_seen FROM device_state WHERE id = 1")
     last_seen = row["last_seen"] if row else None
     online = bool(

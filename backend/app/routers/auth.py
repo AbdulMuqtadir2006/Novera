@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from .. import security
@@ -37,6 +39,6 @@ def me(user: dict = Depends(require_user)):
 
 
 @router.post("/logout")
-def logout(token: str = Depends(get_token)):
+def logout(token: Optional[str] = Depends(get_token)):
     security.delete_session(token)
     return {"ok": True}

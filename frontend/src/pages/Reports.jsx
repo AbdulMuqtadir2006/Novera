@@ -46,7 +46,7 @@ function PrintableReport({ reading, report, lang, t, docRef }) {
               <th className="px-4 py-2.5 text-start font-semibold">{t("reports.biomarker")}</th>
               <th className="px-4 py-2.5 text-start font-semibold">{t("reports.value")}</th>
               <th className="px-4 py-2.5 text-start font-semibold">{t("dash.reference")}</th>
-              <th className="px-4 py-2.5 text-start font-semibold">{t("status.good").split(" ")[0]}</th>
+              <th className="px-4 py-2.5 text-start font-semibold">{t("reports.status")}</th>
             </tr>
           </thead>
           <tbody>

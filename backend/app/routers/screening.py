@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from ..core import scoring, screening_llm
 from ..deps import require_user
+from ..rate_limit import limiter
 
 router = APIRouter()
 
@@ -15,8 +16,9 @@ def _claim_new_screening_case(user_id: int):
     """Shared setup for both /predict-organ and /predict-organ/stream: turn
     this user's latest reading into a claimed 'PROCESSING' screening_cases
     row. Thin HTTP wrapper over scoring.claim_new_case_from_latest_reading(),
-    which is also reused (unmodified) by the autonomous guidance agent — see
-    core/guidance_agent.py and core/scoring.py's docstring on that function."""
+    which is also reused (unmodified) by the autonomous WhatsApp Agent's
+    sensor.reading_received trigger — see core/whatsapp_agent.py and
+    core/scoring.py's docstring on that function."""
     case_row = scoring.claim_new_case_from_latest_reading(user_id)
     if not case_row:
         raise HTTPException(status_code=404, detail="no readings")
@@ -24,7 +26,8 @@ def _claim_new_screening_case(user_id: int):
 
 
 @router.post("/predict-organ")
-def predict_organ(user: dict = Depends(require_user)):
+@limiter.limit("20/minute")
+def predict_organ(request: Request, user: dict = Depends(require_user)):
     """Deep AI analysis: runs the deterministic screening pipeline
     (reference-range score + similarity score + exactly one OpenRouter call,
     req 5) on this user's latest reading, and persists it as a real
@@ -47,7 +50,8 @@ def predict_organ(user: dict = Depends(require_user)):
 
 
 @router.post("/predict-organ/stream")
-def predict_organ_stream(user: dict = Depends(require_user)):
+@limiter.limit("20/minute")
+def predict_organ_stream(request: Request, user: dict = Depends(require_user)):
     """Same pipeline as /predict-organ, streamed as Server-Sent Events — one
     real event per pipeline step (validate, score per organ, decide,
     persist/release) as it actually happens, for a workflow visualizer driven

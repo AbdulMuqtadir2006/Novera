@@ -135,7 +135,7 @@ def context_to_text(context: dict[str, Any]) -> str:
     is built from — the closest thing to `build_system_prompt` in the spec's
     pseudocode, kept as plain text rather than a template engine since every
     other agent in this codebase already composes its system prompt this way
-    (see whatsapp_agent._system_prompt, guidance_agent.SYSTEM_PROMPT)."""
+    (see whatsapp_agent._system_prompt)."""
     lines: list[str] = []
     summary = context.get("conversation_summary") or ""
     lines.append(f"Conversation history summary:\n{summary or '(no prior conversation on file)'}")

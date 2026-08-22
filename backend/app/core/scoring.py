@@ -12,6 +12,8 @@ import math
 from dataclasses import dataclass
 from typing import Any, Optional
 
+import psycopg
+
 from .. import config, db
 from . import reference_data
 
@@ -211,27 +213,44 @@ def get_engine() -> ScoringEngine:
 # screening_cases persistence — ported from novera.py's Database class.
 # ---------------------------------------------------------------------------
 
+MAX_CASE_ID_ATTEMPTS = 5
+
+
 def add_reading(user_id: int, ph: float, urea_mg_dl: float, creatinine_umol_l: float, temperature_c: float) -> str:
-    """Insert one NEW screening case and generate the next N-number case ID."""
-    with db.get_conn() as conn:
-        with conn.transaction():
-            row = conn.execute(
-                """
-                SELECT MAX((regexp_replace(case_id, '^N', ''))::int) AS max_number
-                FROM screening_cases
-                WHERE case_id ~ '^N[0-9]+$'
-                """
-            ).fetchone()
-            next_number = (row["max_number"] or 0) + 1
-            case_id = f"N{next_number:03d}"
-            conn.execute(
-                """
-                INSERT INTO screening_cases (user_id, case_id, ph, urea_mg_dl, creatinine_umol_l, temperature_c, status)
-                VALUES (%s, %s, %s, %s, %s, %s, 'NEW')
-                """,
-                (user_id, case_id, ph, urea_mg_dl, creatinine_umol_l, temperature_c),
-            )
-    return case_id
+    """Insert one NEW screening case and generate the next N-number case ID.
+
+    Bug fix (2026-08-22): the SELECT MAX + INSERT below isn't safe against a
+    concurrent call landing in between (READ COMMITTED, Postgres's default,
+    doesn't lock against that) — two racing calls can compute the same
+    next_number, and the second INSERT used to throw an uncaught
+    UniqueViolation (case_id is UNIQUE) straight up to whatever caller
+    triggered it. Retries with a freshly recomputed number on conflict, same
+    bounded-retry shape as core/booking.py's slot-booking loop."""
+    for attempt in range(MAX_CASE_ID_ATTEMPTS):
+        try:
+            with db.get_conn() as conn:
+                with conn.transaction():
+                    row = conn.execute(
+                        """
+                        SELECT MAX((regexp_replace(case_id, '^N', ''))::int) AS max_number
+                        FROM screening_cases
+                        WHERE case_id ~ '^N[0-9]+$'
+                        """
+                    ).fetchone()
+                    next_number = (row["max_number"] or 0) + 1
+                    case_id = f"N{next_number:03d}"
+                    conn.execute(
+                        """
+                        INSERT INTO screening_cases (user_id, case_id, ph, urea_mg_dl, creatinine_umol_l, temperature_c, status)
+                        VALUES (%s, %s, %s, %s, %s, %s, 'NEW')
+                        """,
+                        (user_id, case_id, ph, urea_mg_dl, creatinine_umol_l, temperature_c),
+                    )
+            return case_id
+        except psycopg.errors.UniqueViolation:
+            if attempt == MAX_CASE_ID_ATTEMPTS - 1:
+                raise
+    raise RuntimeError("Could not generate a unique screening case id.")
 
 
 def claim_new_case_from_latest_reading(user_id: int) -> dict[str, Any] | None:
