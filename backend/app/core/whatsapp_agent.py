@@ -56,7 +56,7 @@ MAX_ITERATIONS = 7  # bumped 5 -> 7 (2026-08-20, orchestrator merge): a full
 # -> send_appointment_offer -> update_patient_context -> final reply, tighter
 # against the old cap than any trigger needed before the merge.
 
-# The 4 proactive triggers, plus the 1 reactive one — kept as a closed set so
+# The 5 proactive triggers, plus the 1 reactive one — kept as a closed set so
 # a typo'd trigger name fails loudly instead of silently building a vague
 # system prompt (see _trigger_description below).
 #
@@ -67,7 +67,16 @@ MAX_ITERATIONS = 7  # bumped 5 -> 7 (2026-08-20, orchestrator merge): a full
 # tool, ported from guidance_agent.py) directly off "sensor.reading_received",
 # so there's no separate hand-off: one continuous run, not two agents passing
 # a baton. guidance_agent.py has been deleted.
-PROACTIVE_TRIGGERS = ("sensor.reading_received", "appointment.completed", "mealtime.checkin", "wellness.checkin")
+#
+# "reading.followup" added 2026-08-22 (Hassan's call) — a separate, later
+# "how are you feeling" check-in fired alongside sensor.reading_received (not
+# instead of it, and not a delayed version of it — see routers/readings.py's
+# add_reading and _delayed_reading_followup). Screening tools are hard-excluded
+# for it via _build_tools' allow_screening param, since claim_new_case_from_
+# latest_reading has no dedup against sensor.reading_received's own run.
+PROACTIVE_TRIGGERS = (
+    "sensor.reading_received", "reading.followup", "appointment.completed", "mealtime.checkin", "wellness.checkin",
+)
 
 # In-flight/throttle guard for sensor.reading_received specifically — ported
 # unchanged from guidance_agent.py's module-level _in_progress/
@@ -104,6 +113,10 @@ def _release_reading_run() -> None:
 # never a phone number, patient name, or message content.
 _TRIGGER_TO_NODE = {
     "sensor.reading_received": "wa_trigger_reading",
+    # Reuses the wellness node (semantically the closest — a "how are you
+    # feeling" style outreach) rather than inventing a new diagram node the
+    # frontend doesn't know how to draw.
+    "reading.followup": "wa_trigger_wellness",
     "appointment.completed": "wa_trigger_appointment",
     "mealtime.checkin": "wa_trigger_meal",
     "wellness.checkin": "wa_trigger_wellness",
@@ -273,6 +286,7 @@ def _build_tools(
     lang: str,
     within_window: bool,
     screening_state: Optional[dict[str, Any]] = None,
+    allow_screening: bool = True,
 ) -> list:
     facts_cache: dict[str, Any] = {}
     # Shared across run_screening_pipeline/generate_report/request_retest for
@@ -671,19 +685,20 @@ def _build_tools(
         screening_state.setdefault("action_tokens", []).append("request_retest")
         return "Retest requested successfully."
 
-    tools += [run_screening_pipeline, generate_report, request_retest]
+    # Hard-gated, not just prompt-guided (2026-08-22): claim_new_case_from_
+    # latest_reading has no dedup — a second call creates a genuinely new
+    # screening_cases row and can send a second appointment offer. reading.
+    # followup's own run always happens after sensor.reading_received's
+    # already screened this same reading, so these tools are excluded
+    # entirely there rather than trusted to the model's judgment.
+    if allow_screening:
+        tools += [run_screening_pipeline, generate_report, request_retest]
     return tools
 
 
 _TRIGGER_DESCRIPTION = {
     "sensor.reading_received": (
-        "A new saliva reading just arrived from the sensor. This run only started after a deliberate "
-        f"~{config.READING_FOLLOWUP_DELAY_SECONDS // 60}-minute delay since the reading itself (see "
-        "config.READING_FOLLOWUP_DELAY_SECONDS) — the patient is no longer sitting there with the "
-        "strip, so if you do send anything, open by addressing them by name and explicitly say this "
-        "is a follow-up message from NOVERA's AI about their recent reading (e.g. \"Hi {name}, this "
-        "is a follow-up from NOVERA's AI about your recent reading...\") — never assume they're still "
-        "thinking about it or word it like an instant auto-reply. Call run_screening_pipeline first — "
+        "A new saliva reading just arrived from the sensor. Call run_screening_pipeline first — "
         "never guess an organ or a flag yourself, and never skip straight to messaging the patient "
         "before you have a real result. Based on what it returns: generate_report is worth calling "
         "for medium/high flags, and often for low flags too. If a medium/high flag comes back, you "
@@ -696,6 +711,16 @@ _TRIGGER_DESCRIPTION = {
         "If this patient has no phone on file, none of the send/booking tools are available to you "
         "this run — screen, report, and remember what happened via update_patient_context; there's "
         "nowhere to message them, which is expected, not an error."
+    ),
+    "reading.followup": (
+        f"This patient took a saliva reading about {config.READING_FOLLOWUP_DELAY_SECONDS // 60} minutes ago. "
+        "A separate run already handled screening/report/appointment-offer for that reading immediately when "
+        "it came in — do NOT call run_screening_pipeline here, this is not a second screening pass. This is "
+        "purely a warm, personal wellness check-in: greet the patient by name, ask how they're feeling / how "
+        "they're doing right now, and mention this is a quick follow-up from NOVERA's AI after their recent "
+        "reading. Keep it light and caring, not clinical — you can glance at get_patient_facts for context if "
+        "useful, but don't recite biomarker values or screening results here (that already happened "
+        "separately); this message is about the person, not the numbers."
     ),
     "appointment.completed": (
         "This patient's booked appointment time has just passed. Consider sending a post-appointment "
@@ -963,7 +988,10 @@ def handle_trigger(trigger: str, user: dict[str, Any], payload: Optional[dict[st
         context = whatsapp_context.get_or_create(user["id"])
         within_window = whatsapp_context.within_24h_window(context)
         screening_state: dict[str, Any] = {}
-        tools = _build_tools(user, phone, lang, within_window=within_window, screening_state=screening_state)
+        tools = _build_tools(
+            user, phone, lang, within_window=within_window, screening_state=screening_state,
+            allow_screening=(trigger != "reading.followup"),
+        )
 
         payload_line = f"\n\nTrigger payload: {payload}" if payload else ""
         messages: list = [

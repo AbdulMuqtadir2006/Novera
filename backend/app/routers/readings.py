@@ -33,17 +33,19 @@ def _stabilize(base: float, amp: float, lo: float, hi: float, dp: int) -> float:
     return _round(min(hi, max(lo, base + (random.random() - 0.5) * amp)), dp)
 
 
-def _delayed_reading_trigger(owner: dict) -> None:
-    """Runs in BackgroundTasks' own worker thread (FastAPI/Starlette already
+def _delayed_reading_followup(owner: dict) -> None:
+    """A separate, later "how are you feeling" wellness check-in — NOT the
+    screening run, which still fires immediately (see add_reading below).
+    Runs in BackgroundTasks' own worker thread (FastAPI/Starlette already
     offloads a sync callable there), so a blocking sleep here doesn't hold up
     the response or any other request — see config.READING_FOLLOWUP_DELAY_
-    SECONDS for why. Not persisted: an app restart mid-delay silently drops
-    the pending follow-up, same as every other in-process background task in
+    SECONDS. Not persisted: an app restart mid-delay silently drops the
+    pending follow-up, same as every other in-process background task in
     this codebase (no job queue exists here) — acceptable for a prototype,
     not something to build around."""
     if config.READING_FOLLOWUP_DELAY_SECONDS:
         time.sleep(config.READING_FOLLOWUP_DELAY_SECONDS)
-    whatsapp_agent.handle_trigger("sensor.reading_received", owner)
+    whatsapp_agent.handle_trigger("reading.followup", owner)
 
 
 @router.get("/readings/latest")
@@ -168,11 +170,7 @@ def add_reading(body: ReadingIn, background_tasks: BackgroundTasks):
 
     # Fire WhatsApp Agent's sensor.reading_received trigger as a true
     # background task (runs after this response is already sent — never
-    # slows down the ESP32's POST), via _delayed_reading_trigger so the whole
-    # run (screening + report + any message, and the homepage's live pipeline
-    # diagram) waits config.READING_FOLLOWUP_DELAY_SECONDS first — a
-    # proactive message should read as a genuine follow-up, not an instant
-    # auto-reply (2026-08-22, Hassan's call). This replaces guidance_agent.run()
+    # slows down the ESP32's POST). This replaces guidance_agent.run()
     # (2026-08-20 orchestrator merge, guidance_agent.py deleted) — WhatsApp
     # Agent now runs the screening pipeline itself as one of its own tools,
     # instead of a separate agent handing off to it afterward.
@@ -183,6 +181,10 @@ def add_reading(body: ReadingIn, background_tasks: BackgroundTasks):
     if config.AUTO_AGENT_ENABLED and owner_user_id is not None:
         owner = db.fetch_one("SELECT id, email, name, phone FROM users WHERE id = %s", (owner_user_id,))
         if owner:
-            background_tasks.add_task(_delayed_reading_trigger, owner)
+            background_tasks.add_task(whatsapp_agent.handle_trigger, "sensor.reading_received", owner)
+            # Separate, later "how are you feeling" check-in (2026-08-22,
+            # Hassan's call) — deliberately independent of the screening run
+            # above, not a delayed version of it. See _delayed_reading_followup.
+            background_tasks.add_task(_delayed_reading_followup, owner)
 
     return out
