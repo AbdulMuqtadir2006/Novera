@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
@@ -147,73 +147,6 @@ _TOOL_TO_NODE = {
     "generate_report": "wa_tool_report",
     "request_retest": "wa_tool_retest",
 }
-
-# Staged interim WhatsApp messages (added 2026-08-22) — narrates the loop's
-# real tool calls to the patient as they happen (reactive path only, see
-# _build_interim_narrator), instead of one silent black box until the final
-# reply. (en, ar) phrase per tool; a tool with no entry here is deliberately
-# NOT narrated:
-#   - get_patient_facts: near-instant local DB read, and called on almost
-#     every single turn (system prompt says "call this first in almost every
-#     case") — narrating it every time would be noise, not signal.
-#   - send_appointment_offer / send_post_appointment_followup /
-#     send_meal_checkin / send_wellness_checkin: these tools' own invocation
-#     already sends a real WhatsApp message as their side effect — a
-#     "let me check…" wrapper in front of an actual send would just be a
-#     second, redundant message for one action.
-#   - update_patient_context / request_sensor_reading: internal writes /
-#     already produce their own natural reply text; nothing to narrate.
-_TOOL_NARRATION: dict[str, tuple[str, str]] = {
-    "check_slot_availability": ("Checking available appointment times…", "أتحقق من مواعيد الحجز المتاحة…"),
-    "book_appointment": ("Booking your appointment…", "أحجز موعدك…"),
-    "cancel_appointment": ("Cancelling your appointment…", "ألغي موعدك…"),
-    "reschedule_appointment": ("Rescheduling your appointment…", "أعيد جدولة موعدك…"),
-    "send_report_pdf": ("Preparing your report…", "أجهّز تقريرك…"),
-    "send_voice_note": ("Putting together a summary…", "أُعدّ لك ملخصاً…"),
-    "run_screening_pipeline": ("Checking your latest reading…", "أتحقق من قراءتك الأخيرة…"),
-    "generate_report": ("Writing up your report…", "أكتب تقريرك…"),
-    "request_retest": ("Flagging this for a retest…", "أُسجّل الحاجة لإعادة الفحص…"),
-}
-
-_MAX_INTERIM_MESSAGES = 2
-_INTERIM_TYPING_DELAY_SECONDS = 1.5
-
-
-def _build_interim_narrator(phone: str, lang: str, user_id: Optional[int]) -> Callable[[str], None]:
-    """Reactive-path only (handle_inbound). Returns a closure the agent loop
-    calls right after each tool result comes back — never fabricated, only
-    ever fires for a tool call that actually just happened, using its real
-    name via _TOOL_NARRATION. Throttled to _MAX_INTERIM_MESSAGES per turn
-    (a long tool-calling run shouldn't flood the chat) and never repeats the
-    same phrase back to back. Fresh closure per call, so concurrent inbound
-    messages never share throttle state (same discipline facts_cache/
-    screening_state already follow elsewhere in this file)."""
-    sent_count = 0
-    last_phrase: Optional[str] = None
-
-    def _narrate(tool_name: str) -> None:
-        nonlocal sent_count, last_phrase
-        if sent_count >= _MAX_INTERIM_MESSAGES:
-            return
-        phrases = _TOOL_NARRATION.get(tool_name)
-        if not phrases:
-            return
-        phrase = phrases[1] if lang == "ar" else phrases[0]
-        if phrase == last_phrase:
-            return
-        sent_count += 1
-        last_phrase = phrase
-        # Short pause instead of a real Meta typing-indicator call (that API
-        # needs the inbound message's own id, which isn't threaded this far
-        # down today) — enough to avoid a burst of messages landing at once,
-        # which reads as robotic in exactly the way this feature is meant to
-        # avoid.
-        time.sleep(_INTERIM_TYPING_DELAY_SECONDS)
-        result = whatsapp_client.send_message(phrase, to=phone)
-        if result.get("delivered") and user_id:
-            whatsapp_context.mark_outbound(user_id)
-
-    return _narrate
 
 
 def _wa_emit(node: str, status: str, label: str) -> None:
@@ -879,17 +812,9 @@ def _system_prompt(user: Optional[dict[str, Any]], lang: str, trigger: str) -> s
     )
 
 
-def _run_agent_loop(
-    messages: list, tools: list, on_tool_result: Optional[Callable[[str], None]] = None,
-) -> tuple[Optional[str], bool]:
+def _run_agent_loop(messages: list, tools: list) -> tuple[Optional[str], bool]:
     """Shared loop for both entry points. Returns (final_text_or_None,
-    hit_iteration_cap).
-
-    on_tool_result (added 2026-08-22, reactive path only — see
-    _build_interim_narrator): called with a tool's real name right after its
-    result comes back, before the next llm.invoke(). Purely observational —
-    never changes which tools get called, in what order, or the final
-    answer; best-effort, so a narration failure can't break the actual loop."""
+    hit_iteration_cap)."""
     tool_map = {t.name: t for t in tools}
     llm = ChatOpenAI(
         model=config.OPENROUTER_MODEL_CONTENT,
@@ -932,11 +857,6 @@ def _run_agent_loop(
                     if wa_node:
                         _wa_emit(wa_node, "error", f"{name} failed")
             messages.append(ToolMessage(content=str(result_text), tool_call_id=call_id))
-            if on_tool_result and name:
-                try:
-                    on_tool_result(name)
-                except Exception:
-                    logger.exception("whatsapp_agent: interim narration failed for tool %r", name)
     return None, True
 
 
@@ -964,8 +884,7 @@ def handle_inbound(from_number: str, text: str, lang: str = "en") -> str:
     reply: Optional[str] = None
     loop_failed = False
     try:
-        narrate = _build_interim_narrator(phone, lang, user["id"] if user else None)
-        reply, hit_cap = _run_agent_loop(messages, tools, on_tool_result=narrate)
+        reply, hit_cap = _run_agent_loop(messages, tools)
         if hit_cap:
             logger.info("whatsapp_agent: hit iteration cap without a final reply for phone=%s", phone)
     except Exception:
