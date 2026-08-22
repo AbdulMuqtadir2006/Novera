@@ -31,6 +31,18 @@ export function useWorkflowSocket() {
   const [connected, setConnected] = useState(false);
   const [nodeStatus, setNodeStatus] = useState(idleNodeStatus);
   const [currentLabel, setCurrentLabel] = useState(null);
+  // Which node the most recent event was actually about (added 2026-08-22,
+  // "make the diagram look more agentic") — lets a caller attach the live
+  // label to that specific node card instead of only a single global ticker,
+  // so an active tool node can show its own exact backend text (e.g.
+  // "Calling book_appointment") rather than just its bundled group name.
+  const [currentEventNode, setCurrentEventNode] = useState(null);
+  // Count of real "step" events seen so far in the current run (added
+  // 2026-08-22) — a plain incrementing counter is one of the clearest
+  // visual signatures of an agentic tool-calling loop (cf. AutoGPT/agent-UI
+  // "Step N" badges). Reset whenever a new run's trigger starts, same
+  // condition the node-status reset below already uses.
+  const [stepCount, setStepCount] = useState(0);
   const [lastRunSummary, setLastRunSummary] = useState(null);
   const [lastEventAt, setLastEventAt] = useState(null);
 
@@ -51,6 +63,7 @@ export function useWorkflowSocket() {
 
     function handleEvent(evt) {
       setCurrentLabel(evt.label ?? null);
+      setCurrentEventNode(evt.node ?? null);
       setLastEventAt(Date.now());
 
       if (evt.type === "step" && evt.node) {
@@ -70,7 +83,8 @@ export function useWorkflowSocket() {
         // beginning — reset every other resettable node (other triggers,
         // the screening sub-steps, all tool groups) to idle first, then
         // apply this node's own status below, so a leftover "success" from
-        // the previous run never lingers into the next one.
+        // the previous run never lingers into the next one. Step count
+        // restarts here too, at 1 for this trigger's own start.
         if (evt.status === "start" && WHATSAPP_TRIGGER_NODE_IDS.includes(evt.node)) {
           setNodeStatus((prev) => {
             const next = { ...prev };
@@ -78,7 +92,16 @@ export function useWorkflowSocket() {
             next[evt.node] = "active";
             return next;
           });
+          setStepCount(1);
           return;
+        }
+
+        // Every other real step start (screening sub-steps, each tool call)
+        // ticks the counter — excludes the agent's own bookend start/success
+        // (node "wa_agent"), which brackets the whole run rather than being
+        // one step within it.
+        if (evt.status === "start" && evt.node !== "wa_agent") {
+          setStepCount((n) => n + 1);
         }
 
         setNodeStatus((prev) => (prev[evt.node] === status ? prev : { ...prev, [evt.node]: status }));
@@ -136,5 +159,5 @@ export function useWorkflowSocket() {
     };
   }, []);
 
-  return { connected, nodeStatus, currentLabel, lastRunSummary, lastEventAt };
+  return { connected, nodeStatus, currentLabel, currentEventNode, stepCount, lastRunSummary, lastEventAt };
 }

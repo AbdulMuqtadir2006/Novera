@@ -110,7 +110,7 @@ function StatusBadge({ status, reducedMotion }) {
 // blurred radial aura that intensifies while active and settles once it
 // decides, plus the same expanding-ring pulse AgentsSection/ComingSoon
 // already use elsewhere for "this is alive."
-function AgentCore({ status, color, reducedMotion, justConcluded }) {
+function AgentCore({ status, color, reducedMotion, justConcluded, rethink }) {
   const auraColor = justConcluded ? CONCLUDE_COLOR : color;
   return (
     <>
@@ -131,6 +131,23 @@ function AgentCore({ status, color, reducedMotion, justConcluded }) {
           aria-hidden="true"
         />
       )}
+      {/* "Back to the brain" ring (added 2026-08-22) — fires every time
+          control conceptually returns to the agent between tool calls
+          (a new node's event lands while the agent is still mid-run), not
+          just once at the end. Fast/tight vs. the slow breathing pulse
+          above, so a run with several tool calls visibly reads as the
+          agent re-deciding each time, not one continuous idle animation —
+          the core visual signature of an iterative tool-calling loop. */}
+      {rethink && !reducedMotion && (
+        <motion.span
+          className="pointer-events-none absolute -inset-1.5 rounded-[24px] border-2"
+          style={{ borderColor: color, boxShadow: `0 0 20px -3px ${color}` }}
+          initial={{ opacity: 0.95, scale: 0.97 }}
+          animate={{ opacity: 0, scale: 1.12 }}
+          transition={{ duration: 0.5, ease: "easeOut" }}
+          aria-hidden="true"
+        />
+      )}
       {/* One-shot "the agent just decided" ring — fires once per run_end,
           warm-colored so it never gets mistaken for another status pulse. */}
       {justConcluded && !reducedMotion && (
@@ -147,7 +164,7 @@ function AgentCore({ status, color, reducedMotion, justConcluded }) {
   );
 }
 
-function NodeCard({ node, status, big, reducedMotion, t, justConcluded }) {
+function NodeCard({ node, status, big, reducedMotion, t, justConcluded, rethink }) {
   const color = STATUS_COLOR[status];
   const isAgent = node.id === "wa_agent";
 
@@ -201,7 +218,13 @@ function NodeCard({ node, status, big, reducedMotion, t, justConcluded }) {
       aria-label={`${t(node.labelKey)} — ${t(`liveWorkflow.state.${status}`)}`}
     >
       {isAgent && (
-        <AgentCore status={status} color={color} reducedMotion={reducedMotion} justConcluded={justConcluded} />
+        <AgentCore
+          status={status}
+          color={color}
+          reducedMotion={reducedMotion}
+          justConcluded={justConcluded}
+          rethink={rethink}
+        />
       )}
       <NodeIcon node={node} status={status} reducedMotion={reducedMotion} />
       <span className="min-w-0 flex-1">
@@ -290,6 +313,50 @@ function SatelliteWire({ sat, agent }) {
   );
 }
 
+// Floats the exact backend event text under whichever node it's actually
+// about (added 2026-08-22) — e.g. "Calling book_appointment" under the
+// bundled "Booking" tool card, instead of only in the single global ticker
+// up top. Makes each node read as a real tool invocation with a real name,
+// not a generic pipeline stage. Live-only (the demo/preview loop has no
+// per-node text worth surfacing this way — its own node label already says
+// as much as the demo has to show).
+function LiveNodeCaption({ node, label, reducedMotion }) {
+  return (
+    <AnimatePresence mode="wait">
+      <motion.div
+        key={label}
+        initial={reducedMotion ? false : { opacity: 0, y: -4 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.25, ease: "easeOut" }}
+        className="pointer-events-none absolute max-w-[240px] truncate rounded-md border border-signal/30 bg-ink/85 px-2 py-1 font-mono text-[9.5px] text-signal/90 backdrop-blur-sm"
+        style={{ left: node.x - node.w / 2, top: node.y + node.h / 2 + 6, zIndex: 5 }}
+      >
+        {label}
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+// "Step N" badge on the agent card (added 2026-08-22) — a plain incrementing
+// counter is one of the clearest visual tells of an agentic tool-calling
+// loop (cf. AutoGPT/agent-UI step badges): it makes the run legible as a
+// sequence of decisions, not one opaque black box lighting up all at once.
+function StepBadge({ node, count }) {
+  return (
+    <div
+      className="absolute z-10 rounded-full border border-signal/40 bg-ink/90 px-2 py-0.5 font-mono text-[9.5px] font-semibold text-signal"
+      style={{
+        left: node.x + node.w / 2 - 34,
+        top: node.y - node.h / 2 - 11,
+        boxShadow: "0 0 12px -2px rgba(40,207,224,0.6)",
+      }}
+    >
+      #{count}
+    </div>
+  );
+}
+
 function LiveIndicator({ isLive, t }) {
   return (
     <div
@@ -371,7 +438,8 @@ function EventTicker({ entries, isLive, reducedMotion, t }) {
 function WorkflowLive() {
   const { t } = useLang();
   const reducedMotion = usePrefersReducedMotion();
-  const { connected, nodeStatus, currentLabel, lastRunSummary, lastEventAt } = useWorkflowSocket();
+  const { connected, nodeStatus, currentLabel, currentEventNode, stepCount, lastRunSummary, lastEventAt } =
+    useWorkflowSocket();
 
   const [isLive, setIsLive] = useState(false);
   useEffect(() => {
@@ -401,6 +469,31 @@ function WorkflowLive() {
   const demoStatus = useMemo(() => buildDemoStatus(demoStep), [demoStep]);
   const status = isLive ? nodeStatus : demoStatus;
   const anyActive = useMemo(() => Object.values(status).some((s) => s === "active"), [status]);
+
+  // Step badge works in both modes (added 2026-08-22) — the demo loop is a
+  // real, if illustrative, sequence of steps too, so it deserves the same
+  // "this is a run in progress" counter as a live one.
+  const demoStepCount = Math.min(demoStep + 1, DEMO_SEQUENCE.length);
+  const displayStepCount = isLive ? stepCount : demoStepCount;
+
+  // "Back to the brain" pulse — fires whenever a *new* node's event lands
+  // while the agent is mid-run (status.wa_agent === "active"), live only:
+  // the demo loop's fixed timer already reads as continuous motion on its
+  // own, and doesn't carry a real "control returned to the agent" moment to
+  // mark. See AgentCore's own comment for why this differs from the
+  // existing continuous breathing pulse and the one-shot justConcluded ring.
+  const [rethink, setRethink] = useState(false);
+  const prevEventNodeRef = useRef(null);
+  useEffect(() => {
+    if (!isLive || reducedMotion) return undefined;
+    if (status.wa_agent !== "active") return undefined;
+    if (!currentEventNode || currentEventNode === "wa_agent") return undefined;
+    if (currentEventNode === prevEventNodeRef.current) return undefined;
+    prevEventNodeRef.current = currentEventNode;
+    setRethink(true);
+    const timer = setTimeout(() => setRethink(false), 500);
+    return () => clearTimeout(timer);
+  }, [isLive, currentEventNode, status.wa_agent, reducedMotion]);
 
   // "Conclusion" beat: a brief warm accent marking the moment a real run
   // finishes deciding, distinct from any per-node status change. Keyed off
@@ -571,8 +664,16 @@ function WorkflowLive() {
                   reducedMotion={reducedMotion}
                   t={t}
                   justConcluded={node.id === "wa_agent" ? justConcluded : false}
+                  rethink={node.id === "wa_agent" ? rethink : false}
                 />
               ))}
+
+              {displayStepCount > 0 && <StepBadge node={agentNode} count={displayStepCount} />}
+
+              {isLive && currentEventNode && currentLabel && status[currentEventNode] === "active" &&
+                NODE_BY_ID[currentEventNode] && (
+                  <LiveNodeCaption node={NODE_BY_ID[currentEventNode]} label={currentLabel} reducedMotion={reducedMotion} />
+                )}
 
               {AGENT_SATELLITES.map((sat) => (
                 <SatelliteChip key={sat.id} sat={sat} agent={agentNode} t={t} />
