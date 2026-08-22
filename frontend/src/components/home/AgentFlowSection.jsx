@@ -1,7 +1,7 @@
 import { Section } from "./Section";
 import { LiveWorkflowDiagram } from "./LiveWorkflow";
 import { useLang } from "../../i18n/LanguageContext";
-import { WORKFLOW_NODES, WORKFLOW_EDGES, NODE_BY_ID } from "../../data/liveWorkflow";
+import { WORKFLOW_NODES, WORKFLOW_EDGES, DISPLAY_NODE_BY_ID } from "../../data/liveWorkflow";
 
 const GROUP_DOT = {
   signal: "#28CFE0",
@@ -44,9 +44,9 @@ export function AgentFlowSection() {
           {t("liveWorkflow.srIntro")} {WORKFLOW_NODES.map((n) => t(n.labelKey)).join(" → ")}.{" "}
           {t("liveWorkflow.srEdges")}{" "}
           {WORKFLOW_EDGES
-            .map((e) => `${t(NODE_BY_ID[e.from].labelKey)} to ${t(NODE_BY_ID[e.to].labelKey)}`)
+            .map((e) => `${t(DISPLAY_NODE_BY_ID[e.from].labelKey)} to ${t(DISPLAY_NODE_BY_ID[e.to].labelKey)}`)
             .join(", ")}
-          . {t("liveWorkflow.srToolNote")}
+          . {t("liveWorkflow.srToolNote")} {t("liveWorkflow.srToolPortNote")}
         </p>
       </div>
 

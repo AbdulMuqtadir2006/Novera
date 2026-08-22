@@ -9,10 +9,13 @@ import {
   CANVAS_H,
   WORKFLOW_NODES,
   NODE_BY_ID,
+  DISPLAY_NODE_BY_ID,
+  TOOL_PORT_NODE,
   WORKFLOW_EDGES,
   AGENT_SATELLITES,
   DEMO_SEQUENCE,
   ALL_NODE_IDS,
+  WHATSAPP_TOOL_NODE_IDS,
 } from "../../../data/liveWorkflow";
 
 const LIVE_WINDOW_MS = 90_000;
@@ -51,9 +54,32 @@ function buildDemoStatus(stepIndex) {
 // most for the 3-way score fan-in, where two organs can finish while the
 // third is still scoring). Once the target itself starts/finishes, the wire
 // just mirrors the target's own state.
-function edgeDisplayStatus(fromStatus, toStatus) {
+//
+// `optional` (added 2026-08-22): bug fix. The "light up once the source
+// succeeded" fallback above is only correct for edges that are structurally
+// guaranteed to fire together (validate -> each score, each score -> agent).
+// It was already wrong for every wa_agent -> tool edge — once a run ends
+// (wa_agent succeeds), every tool wire lit up "active" regardless of
+// whether that tool was ever actually called, directly contradicting
+// liveWorkflow.srToolNote's own "an unused tool is not an error, it's a
+// decision" promise. `optional` edges (the tool-port trunk + its 8 fan-out
+// wires) skip that fallback entirely — they only ever show non-idle from a
+// real per-tool event, never inherited from their source's success alone.
+function edgeDisplayStatus(fromStatus, toStatus, optional) {
   if (toStatus === "success" || toStatus === "error" || toStatus === "active") return toStatus;
-  if (fromStatus === "success") return "active";
+  if (!optional && fromStatus === "success") return "active";
+  return "idle";
+}
+
+// Derived, not socket-driven (added 2026-08-22) — the tool port's status is
+// purely a function of the real 8 tool nodes' own statuses, computed fresh
+// from whichever `status` map is active (live or demo), so it can never
+// drift out of sync with them and needs no new event type.
+function deriveToolPortStatus(status) {
+  const toolStatuses = WHATSAPP_TOOL_NODE_IDS.map((id) => status[id] ?? "idle");
+  if (toolStatuses.includes("error")) return "error";
+  if (toolStatuses.includes("active")) return "active";
+  if (toolStatuses.includes("success")) return "success";
   return "idle";
 }
 
@@ -164,7 +190,10 @@ function AgentCore({ status, color, reducedMotion, justConcluded, rethink }) {
   );
 }
 
-function NodeCard({ node, status, big, reducedMotion, t, justConcluded, rethink }) {
+function NodeCard({
+  node, status, big, reducedMotion, t, justConcluded, rethink,
+  onDetailEnter, onDetailLeave, onDetailClick, isDetailActive,
+}) {
   const color = STATUS_COLOR[status];
   const isAgent = node.id === "wa_agent";
 
@@ -196,19 +225,22 @@ function NodeCard({ node, status, big, reducedMotion, t, justConcluded, rethink 
       ? { duration: 1.1, repeat: Infinity, ease: "easeInOut" }
       : { duration: 0.3, ease: "easeOut" };
 
+  const hasDetail = Boolean(node.detailKey);
+
   return (
     <motion.div
       className={`absolute flex items-center gap-2.5 rounded-2xl border px-3 backdrop-blur-sm ${
         isAgent ? "bg-white/[0.05]" : "bg-white/[0.03]"
-      }`}
+      } ${hasDetail ? "cursor-pointer" : ""}`}
       style={{
         left: node.x - node.w / 2,
         top: node.y - node.h / 2,
         width: node.w,
         height: node.h,
-        borderColor: status === "idle" ? "rgba(255,255,255,0.10)" : `${color}66`,
-        boxShadow:
-          status === "idle"
+        borderColor: isDetailActive ? "rgba(40,207,224,0.55)" : status === "idle" ? "rgba(255,255,255,0.10)" : `${color}66`,
+        boxShadow: isDetailActive
+          ? "0 0 20px -6px rgba(40,207,224,0.7), inset 0 1px 0 0 rgba(255,255,255,0.06)"
+          : status === "idle"
             ? "inset 0 1px 0 0 rgba(255,255,255,0.04)"
             : `0 0 24px -10px ${color}, inset 0 1px 0 0 rgba(255,255,255,0.06)`,
       }}
@@ -216,6 +248,12 @@ function NodeCard({ node, status, big, reducedMotion, t, justConcluded, rethink 
       transition={transition}
       role="status"
       aria-label={`${t(node.labelKey)} — ${t(`liveWorkflow.state.${status}`)}`}
+      tabIndex={hasDetail ? 0 : undefined}
+      onMouseEnter={onDetailEnter}
+      onMouseLeave={onDetailLeave}
+      onFocus={onDetailEnter}
+      onBlur={onDetailLeave}
+      onClick={onDetailClick}
     >
       {isAgent && (
         <AgentCore
@@ -236,6 +274,12 @@ function NodeCard({ node, status, big, reducedMotion, t, justConcluded, rethink 
           {t(node.labelKey)}
         </span>
       </span>
+      {hasDetail && (
+        <span
+          className="absolute right-2 top-2 h-1 w-1 rounded-full bg-signal/60"
+          aria-hidden="true"
+        />
+      )}
       <StatusBadge status={status} reducedMotion={reducedMotion} />
     </motion.div>
   );
@@ -258,12 +302,95 @@ function SatelliteChip({ sat, agent, t }) {
   );
 }
 
+// The tool port (added 2026-08-22) — a real, status-driven hub the 8 tool
+// nodes visually route through, replacing the old decorative "Tool"
+// satellite chip. Circular (vs. every other node's rounded-rect) and
+// dashed-at-idle so it still reads as part of the chatModel/memory
+// satellite family, but with a solid glow and the same STATUS_COLOR
+// language every other node uses once it's actually carrying a real tool
+// call — the visual promise being made is "this is a real port with real
+// traffic through it," not decoration.
+function ToolPortNode({ node, status, count, reducedMotion, t }) {
+  const Icon = node.icon;
+  const color = STATUS_COLOR[status];
+  return (
+    <motion.div
+      className="absolute flex flex-col items-center justify-center gap-0.5 rounded-full border-2 border-dashed backdrop-blur-sm"
+      style={{
+        left: node.x - node.w / 2,
+        top: node.y - node.h / 2,
+        width: node.w,
+        height: node.h,
+        borderColor: status === "idle" ? "rgba(255,255,255,0.14)" : color,
+        borderStyle: status === "idle" ? "dashed" : "solid",
+        backgroundColor: status === "idle" ? "rgba(255,255,255,0.02)" : `${color}14`,
+        boxShadow: status === "idle" ? "none" : `0 0 22px -6px ${color}`,
+      }}
+      animate={status === "active" && !reducedMotion ? { scale: [1, 1.06, 1] } : { scale: 1 }}
+      transition={
+        status === "active" && !reducedMotion
+          ? { duration: 1, repeat: Infinity, ease: "easeInOut" }
+          : { duration: 0.3, ease: "easeOut" }
+      }
+      role="status"
+      aria-label={`${t(node.labelKey)} — ${t(`liveWorkflow.state.${status}`)}`}
+    >
+      <Icon size={17} strokeWidth={1.8} style={{ color: status === "idle" ? "#6b7280" : color }} />
+      <span className="font-mono text-[7.5px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+        {t(node.labelKey)}
+      </span>
+      <span
+        className="font-mono text-[9px] font-semibold"
+        style={{ color: status === "idle" ? "#94a3b8" : color }}
+      >
+        {count} {t("liveWorkflow.toolPort.available")}
+      </span>
+    </motion.div>
+  );
+}
+
+// Shared hover/tap info strip for the 8 tool nodes (added 2026-08-22) —
+// one component instead of 8 per-card popovers, which would clip/overlap
+// given how tightly the tool column is packed against the canvas edge.
+// Swaps its text to whichever node is currently hovered, focused, or
+// tapped-to-pin (see NodeCard's onDetail* handlers and WorkflowLive's
+// activeDetailId). Same font-mono/bordered visual language EventTicker
+// already established, so it reads as part of the same "real system
+// output" family, not a generic tooltip.
+function ToolDetailRail({ activeDetailId, reducedMotion, t }) {
+  const detailNode = activeDetailId ? DISPLAY_NODE_BY_ID[activeDetailId] : null;
+  return (
+    <div
+      className="relative overflow-hidden rounded-xl border border-white/10 bg-black/30 px-3 py-2"
+      style={{ boxShadow: "inset 0 0 24px -8px rgba(178,75,214,0.2)" }}
+    >
+      <p className="mb-1 font-mono text-[9px] uppercase tracking-[0.2em] text-slate-500">
+        {t("liveWorkflow.toolRail.label")}
+      </p>
+      <AnimatePresence mode="wait">
+        <motion.p
+          key={activeDetailId || "idle"}
+          initial={reducedMotion ? false : { opacity: 0, y: -3 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.2, ease: "easeOut" }}
+          className="truncate text-[11px] leading-snug text-slate-300"
+        >
+          {detailNode ? t(detailNode.detailKey) : t("liveWorkflow.toolRail.idle")}
+        </motion.p>
+      </AnimatePresence>
+    </div>
+  );
+}
+
 // Active wires leave a short glowing "comet" trail instead of a bare dot —
 // three copies of the same path animation, phase-offset via negative
 // `begin`, shrinking in size/opacity from head to tail.
 function Wire({ edge, status, reducedMotion }) {
-  const from = NODE_BY_ID[edge.from];
-  const to = NODE_BY_ID[edge.to];
+  // DISPLAY_NODE_BY_ID (not NODE_BY_ID) — some edges now touch the
+  // frontend-only tool-port hub, which isn't a real backend-emitting node.
+  const from = DISPLAY_NODE_BY_ID[edge.from];
+  const to = DISPLAY_NODE_BY_ID[edge.to];
   const { d } = edgeAnchors(from, to);
   const color = STATUS_COLOR[status];
   const pathId = `wire-${edge.id}`;
@@ -470,6 +597,27 @@ function WorkflowLive() {
   const status = isLive ? nodeStatus : demoStatus;
   const anyActive = useMemo(() => Object.values(status).some((s) => s === "active"), [status]);
 
+  // Tool port status/edges (added 2026-08-22) — derived, not socket-driven;
+  // see deriveToolPortStatus's own comment. statusForEdges is what every
+  // WORKFLOW_EDGES lookup below uses instead of raw `status`, so the 9
+  // tool-port edges (trunk + 8 fan-out) resolve against a real value for
+  // "wa_tool_port" instead of undefined/idle.
+  const toolPortStatus = useMemo(() => deriveToolPortStatus(status), [status]);
+  const statusForEdges = useMemo(() => ({ ...status, wa_tool_port: toolPortStatus }), [status, toolPortStatus]);
+
+  // Tool detail rail state (added 2026-08-22) — hover takes priority over a
+  // click-to-pin (so pinning one tool on touch, then hovering another on
+  // desktop, still shows whichever is actually under the pointer); clicking
+  // the already-pinned node again unpins it. In demo/preview mode, with
+  // nothing manually hovered or pinned, auto-seed from whichever demo step
+  // is active if it carries a detailKey — teaches the interaction to a
+  // visitor who never touches the diagram.
+  const [hoveredDetailId, setHoveredDetailId] = useState(null);
+  const [pinnedDetailId, setPinnedDetailId] = useState(null);
+  const demoStepNode = WORKFLOW_NODES.find((n) => n.id === DEMO_SEQUENCE[Math.min(demoStep, DEMO_SEQUENCE.length - 1)]);
+  const autoDemoDetailId = !isLive && demoStepNode?.detailKey ? demoStepNode.id : null;
+  const activeDetailId = hoveredDetailId ?? pinnedDetailId ?? autoDemoDetailId;
+
   // Step badge works in both modes (added 2026-08-22) — the demo loop is a
   // real, if illustrative, sequence of steps too, so it deserves the same
   // "this is a run in progress" counter as a live one.
@@ -533,9 +681,17 @@ function WorkflowLive() {
   }, [isLive, currentLabel, lastEventAt]);
 
   const agentNode = NODE_BY_ID.wa_agent;
+  // Bug fix (found live 2026-08-22, testing the tool port): this used to
+  // reconstruct a translation key from the node id by guessing its
+  // camelCase form (keyOf) — broke for wa_tool_report/wa_tool_retest, whose
+  // real labelKey ("toolReport"/"toolRetest") drops the "wa" prefix the
+  // guess assumed, so the caption showed the literal untranslated key
+  // string during those two demo steps. Reading the real labelKey straight
+  // off the node data can't drift out of sync with it the way a
+  // string-guessing helper can.
   const caption = isLive
     ? currentLabel
-    : t(`liveWorkflow.node.${keyOf(DEMO_SEQUENCE[Math.min(demoStep, DEMO_SEQUENCE.length - 1)])}`);
+    : t(NODE_BY_ID[DEMO_SEQUENCE[Math.min(demoStep, DEMO_SEQUENCE.length - 1)]].labelKey);
 
   // Scale-to-fit: measure the real available width and shrink the fixed
   // CANVAS_W x CANVAS_H canvas with a CSS transform so it always fits
@@ -649,7 +805,11 @@ function WorkflowLive() {
                   <Wire
                     key={edge.id}
                     edge={edge}
-                    status={edgeDisplayStatus(status[edge.from] ?? "idle", status[edge.to] ?? "idle")}
+                    status={edgeDisplayStatus(
+                      statusForEdges[edge.from] ?? "idle",
+                      statusForEdges[edge.to] ?? "idle",
+                      edge.optional,
+                    )}
                     reducedMotion={reducedMotion}
                   />
                 ))}
@@ -665,8 +825,24 @@ function WorkflowLive() {
                   t={t}
                   justConcluded={node.id === "wa_agent" ? justConcluded : false}
                   rethink={node.id === "wa_agent" ? rethink : false}
+                  isDetailActive={activeDetailId === node.id}
+                  onDetailEnter={node.detailKey ? () => setHoveredDetailId(node.id) : undefined}
+                  onDetailLeave={
+                    node.detailKey ? () => setHoveredDetailId((id) => (id === node.id ? null : id)) : undefined
+                  }
+                  onDetailClick={
+                    node.detailKey ? () => setPinnedDetailId((id) => (id === node.id ? null : node.id)) : undefined
+                  }
                 />
               ))}
+
+              <ToolPortNode
+                node={TOOL_PORT_NODE}
+                status={toolPortStatus}
+                count={WHATSAPP_TOOL_NODE_IDS.length}
+                reducedMotion={reducedMotion}
+                t={t}
+              />
 
               {displayStepCount > 0 && <StepBadge node={agentNode} count={displayStepCount} />}
 
@@ -682,15 +858,12 @@ function WorkflowLive() {
           </div>
         </div>
       </div>
+
+      <div className="px-4 pt-3 sm:px-5">
+        <ToolDetailRail activeDetailId={activeDetailId} reducedMotion={reducedMotion} t={t} />
+      </div>
     </div>
   );
-}
-
-function keyOf(nodeId) {
-  return nodeId
-    .split("_")
-    .map((part, i) => (i === 0 ? part : part[0].toUpperCase() + part.slice(1)))
-    .join("");
 }
 
 // Lazy-mounts the live/animated canvas only once the section is actually

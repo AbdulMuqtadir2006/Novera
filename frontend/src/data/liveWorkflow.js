@@ -25,6 +25,14 @@
 // to this canvas instead of letting it overflow/scroll. The merge shrank
 // the canvas substantially (1120 -> ~760 tall) since this is one lane now,
 // not two stacked ones.
+//
+// TOOL PORT (added 2026-08-22): the 8 tool nodes below now visually route
+// through TOOL_PORT_NODE, a synthetic circular hub sitting between wa_agent
+// and the tool column — see TOOL_PORT_NODE/DISPLAY_NODE_BY_ID further down.
+// It's deliberately NOT in WORKFLOW_NODES/NODE_BY_ID/ALL_NODE_IDS/
+// RESETTABLE_NODE_IDS (the hard contract above is for real backend-emitting
+// nodes only) — its status is derived client-side in LiveWorkflowDiagram.jsx
+// from the real 8 tool statuses, never set directly from a socket event.
 import {
   Wifi,
   ShieldCheck,
@@ -84,17 +92,38 @@ export const WORKFLOW_NODES = [
   // 8 tool groups it can reach for, fanned out on the right (bundled by
   // related tools, e.g. book/cancel/reschedule as one "Booking" node,
   // rather than showing all 16 individual tools).
-  { id: "wa_tool_facts", labelKey: "liveWorkflow.node.waToolFacts", icon: Search, x: 1125, y: 128, w: 182, h: 54, group: "amber" },
-  { id: "wa_tool_booking", labelKey: "liveWorkflow.node.waToolBooking", icon: CalendarClock, x: 1125, y: 203, w: 182, h: 54, group: "amber" },
-  { id: "wa_tool_media", labelKey: "liveWorkflow.node.waToolMedia", icon: FileText, x: 1125, y: 278, w: 182, h: 54, group: "amber" },
-  { id: "wa_tool_offer", labelKey: "liveWorkflow.node.waToolOffer", icon: Stethoscope, x: 1125, y: 353, w: 182, h: 54, group: "amber" },
-  { id: "wa_tool_checkin", labelKey: "liveWorkflow.node.waToolCheckin", icon: CheckCircle2, x: 1125, y: 428, w: 182, h: 54, group: "amber" },
-  { id: "wa_tool_memory", labelKey: "liveWorkflow.node.waToolMemory", icon: Database, x: 1125, y: 503, w: 182, h: 54, group: "amber" },
-  { id: "wa_tool_report", labelKey: "liveWorkflow.node.toolReport", icon: FileText, x: 1125, y: 578, w: 182, h: 54, group: "amber" },
-  { id: "wa_tool_retest", labelKey: "liveWorkflow.node.toolRetest", icon: RotateCcw, x: 1125, y: 653, w: 182, h: 54, group: "amber" },
+  { id: "wa_tool_facts", labelKey: "liveWorkflow.node.waToolFacts", detailKey: "liveWorkflow.node.waToolFactsDetail", icon: Search, x: 1125, y: 128, w: 182, h: 54, group: "amber" },
+  { id: "wa_tool_booking", labelKey: "liveWorkflow.node.waToolBooking", detailKey: "liveWorkflow.node.waToolBookingDetail", icon: CalendarClock, x: 1125, y: 203, w: 182, h: 54, group: "amber" },
+  { id: "wa_tool_media", labelKey: "liveWorkflow.node.waToolMedia", detailKey: "liveWorkflow.node.waToolMediaDetail", icon: FileText, x: 1125, y: 278, w: 182, h: 54, group: "amber" },
+  { id: "wa_tool_offer", labelKey: "liveWorkflow.node.waToolOffer", detailKey: "liveWorkflow.node.waToolOfferDetail", icon: Stethoscope, x: 1125, y: 353, w: 182, h: 54, group: "amber" },
+  { id: "wa_tool_checkin", labelKey: "liveWorkflow.node.waToolCheckin", detailKey: "liveWorkflow.node.waToolCheckinDetail", icon: CheckCircle2, x: 1125, y: 428, w: 182, h: 54, group: "amber" },
+  { id: "wa_tool_memory", labelKey: "liveWorkflow.node.waToolMemory", detailKey: "liveWorkflow.node.waToolMemoryDetail", icon: Database, x: 1125, y: 503, w: 182, h: 54, group: "amber" },
+  { id: "wa_tool_report", labelKey: "liveWorkflow.node.toolReport", detailKey: "liveWorkflow.node.toolReportDetail", icon: FileText, x: 1125, y: 578, w: 182, h: 54, group: "amber" },
+  { id: "wa_tool_retest", labelKey: "liveWorkflow.node.toolRetest", detailKey: "liveWorkflow.node.toolRetestDetail", icon: RotateCcw, x: 1125, y: 653, w: 182, h: 54, group: "amber" },
 ];
 
 export const NODE_BY_ID = Object.fromEntries(WORKFLOW_NODES.map((n) => [n.id, n]));
+
+// Synthetic, frontend-only hub the 8 tool nodes visually route through —
+// see the TOOL PORT comment above. Not a WORKFLOW_NODES member on purpose:
+// it never receives a real backend event, so it must stay out of every
+// array that models "a real node the socket can address."
+export const TOOL_PORT_NODE = {
+  id: "wa_tool_port",
+  labelKey: "liveWorkflow.satellite.tool",
+  detailKey: "liveWorkflow.satellite.toolDetail",
+  icon: Wrench,
+  x: 945,
+  y: 390,
+  w: 104,
+  h: 104,
+};
+
+// The one place code that needs to resolve BOTH real nodes and the display-
+// only port by id should look things up (edge anchors, the sr-only paragraph
+// in AgentFlowSection.jsx) — NODE_BY_ID itself stays exactly what it always
+// was, the hard-contract map of real nodes only.
+export const DISPLAY_NODE_BY_ID = { ...NODE_BY_ID, [TOOL_PORT_NODE.id]: TOOL_PORT_NODE };
 
 export const WHATSAPP_TRIGGER_NODE_IDS = [
   "wa_trigger_reading",
@@ -139,24 +168,33 @@ export const WORKFLOW_EDGES = [
   { id: "wa-wellness-agent", from: "wa_trigger_wellness", to: "wa_agent" },
   { id: "wa-message-agent", from: "wa_trigger_message", to: "wa_agent" },
 
-  { id: "wa-agent-facts", from: "wa_agent", to: "wa_tool_facts" },
-  { id: "wa-agent-booking", from: "wa_agent", to: "wa_tool_booking" },
-  { id: "wa-agent-media", from: "wa_agent", to: "wa_tool_media" },
-  { id: "wa-agent-offer", from: "wa_agent", to: "wa_tool_offer" },
-  { id: "wa-agent-checkin", from: "wa_agent", to: "wa_tool_checkin" },
-  { id: "wa-agent-memory", from: "wa_agent", to: "wa_tool_memory" },
-  { id: "wa-agent-report", from: "wa_agent", to: "wa_tool_report" },
-  { id: "wa-agent-retest", from: "wa_agent", to: "wa_tool_retest" },
+  // Routed through the tool port (added 2026-08-22), not straight off
+  // wa_agent — `optional: true` on all 9 of these means edgeDisplayStatus
+  // only lights them up on a real per-tool event, never just because
+  // wa_agent itself succeeded (see edgeDisplayStatus's own comment in
+  // LiveWorkflowDiagram.jsx for why that distinction matters here).
+  { id: "wa-agent-toolport", from: "wa_agent", to: "wa_tool_port", optional: true },
+  { id: "toolport-facts", from: "wa_tool_port", to: "wa_tool_facts", optional: true },
+  { id: "toolport-booking", from: "wa_tool_port", to: "wa_tool_booking", optional: true },
+  { id: "toolport-media", from: "wa_tool_port", to: "wa_tool_media", optional: true },
+  { id: "toolport-offer", from: "wa_tool_port", to: "wa_tool_offer", optional: true },
+  { id: "toolport-checkin", from: "wa_tool_port", to: "wa_tool_checkin", optional: true },
+  { id: "toolport-memory", from: "wa_tool_port", to: "wa_tool_memory", optional: true },
+  { id: "toolport-report", from: "wa_tool_port", to: "wa_tool_report", optional: true },
+  { id: "toolport-retest", from: "wa_tool_port", to: "wa_tool_retest", optional: true },
 ];
 
 // Static decorative satellites hanging off the agent node (dashed lines, no
 // event coverage — mirrors the reference n8n screenshot's Chat
 // Model/Memory/Tool trio under its "AI Agent" node). dx/dy are offsets from
-// the agent node's own center.
+// the agent node's own center. The "Tool" third of the trio graduated
+// (2026-08-22) into TOOL_PORT_NODE above — a real, live-status hub instead
+// of a decorative chip, since unlike chat-model/memory it has 8 real,
+// per-event nodes to actually represent. Re-centered as a pair now that
+// there are 2, not 3.
 export const AGENT_SATELLITES = [
-  { id: "chatModel", labelKey: "liveWorkflow.satellite.chatModel", detailKey: "liveWorkflow.satellite.chatModelDetail", icon: Sparkles, dx: -120, dy: 150 },
-  { id: "memory", labelKey: "liveWorkflow.satellite.memory", detailKey: "liveWorkflow.satellite.memoryDetail", icon: Database, dx: 0, dy: 150 },
-  { id: "tool", labelKey: "liveWorkflow.satellite.tool", detailKey: "liveWorkflow.satellite.toolDetail", icon: Wrench, dx: 120, dy: 150 },
+  { id: "chatModel", labelKey: "liveWorkflow.satellite.chatModel", detailKey: "liveWorkflow.satellite.chatModelDetail", icon: Sparkles, dx: -75, dy: 150 },
+  { id: "memory", labelKey: "liveWorkflow.satellite.memory", detailKey: "liveWorkflow.satellite.memoryDetail", icon: Database, dx: 75, dy: 150 },
 ];
 
 // Illustrative loop for the always-alive idle/preview animation (no backend

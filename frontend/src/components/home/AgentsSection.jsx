@@ -44,8 +44,8 @@ export function AgentsSection() {
     <Section
       id="agents"
       eyebrow="How It Thinks"
-      title="A pipeline of agents, working while you wait."
-      intro="Every reading passes through a coordinated system of AI agents, each responsible for a different part of turning a raw signal into something you can understand."
+      title="One agent, working through it in stages."
+      intro="Every reading passes through the same agent's reasoning, phase by phase — from a raw signal to something you can actually understand and act on."
     >
       <div className="relative">
         {/* Animated connecting line behind the cards (desktop) */}
