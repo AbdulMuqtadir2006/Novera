@@ -26,6 +26,7 @@ invented time); factual answers are grounded ONLY in get_patient_facts.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any, Optional
 
@@ -259,6 +260,118 @@ def _try_admin_trigger(from_number: str, text: str) -> Optional[dict[str, Any]]:
         # which sender number used it, for an audit trail.
         logger.info("whatsapp_agent: admin trigger recognized, sender=%s", normalize_phone(from_number))
     return row
+
+
+def _admin_intro_message(lang: str) -> str:
+    """The admin/demo feature list — extracted (2026-08-23) so both the
+    `madaar` trigger itself and _greeting_reply (a plain "hi" while an
+    admin session is already active) send the exact same message. Every
+    bullet is a real tool actually offered on this path (_build_tools with
+    a registered user + phone + within_window=True + allow_screening
+    default True) — keep this list in sync if a tool is added/removed
+    there."""
+    return (
+        "🔑 Admin/demo mode is ON for this number for the next 24h — you're testing the full "
+        "NOVERA experience as the demo account, no real sensor reading needed. You can ask me to:\n\n"
+        "• Run the screening pipeline / generate a report from the latest (synthetic) reading\n"
+        "• Send the report as a PDF\n"
+        "• Send a spoken voice-note summary\n"
+        "• Send the natural-recovery / self-care plan\n"
+        "• Tell you what a doctor has noted (patient context memory)\n"
+        "• Check slot availability, book / cancel / reschedule an appointment\n"
+        "• Request a retest\n"
+        "• Arm the shared sensor for a next capture\n\n"
+        "⚠️ Caution: any appointment you book here is a REAL booking placed in the clinic's real "
+        "system on the demo account — it is not simulated. In real (non-admin) operation, an "
+        "appointment is only ever booked automatically when a real NOVERA Product sensor reading "
+        "actually flags a concern — not on request like this. If you book one here just to test the "
+        "flow, remember to cancel it afterward so it doesn't sit as a real slot."
+        if lang != "ar" else
+        "🔑 تم تفعيل وضع الإدارة/التجربة لهذا الرقم لمدة 24 ساعة — أنت تختبر تجربة نوفيرا الكاملة "
+        "كحساب تجريبي، دون الحاجة لقراءة حقيقية من المستشعر. يمكنك أن تطلب مني:\n\n"
+        "• تشغيل مسار الفحص / إنشاء تقرير من آخر قراءة (تجريبية)\n"
+        "• إرسال التقرير كملف PDF\n"
+        "• إرسال ملخص صوتي منطوق\n"
+        "• إرسال خطة التعافي الطبيعي / العناية الذاتية\n"
+        "• إخبارك بما سجّله الطبيب (ذاكرة سياق المريض)\n"
+        "• التحقق من توفر المواعيد، أو حجز/إلغاء/إعادة جدولة موعد\n"
+        "• طلب إعادة الفحص\n"
+        "• تجهيز المستشعر المشترك لقراءة قادمة\n\n"
+        "⚠️ تنبيه: أي موعد تحجزه هنا هو حجز حقيقي فعلاً في نظام العيادة الحقيقي على الحساب التجريبي "
+        "— وليس محاكاة. في التشغيل الفعلي (غير الإداري)، لا يُحجز الموعد تلقائيًا إلا عندما ترصد "
+        "قراءة حقيقية من منتج نوفيرا مشكلة فعلية — وليس بمجرد الطلب كما هنا. إذا حجزت موعدًا هنا "
+        "لتجربة المسار فقط، تذكّر إلغاءه لاحقًا حتى لا يبقى كموعد حقيقي."
+    )
+
+
+# Matches a bare greeting and nothing else — "hi", "hey", "hello novera",
+# "hi there!", etc. — NOT a real question that happens to start with one
+# (e.g. "hi, is my report ready?"), which needs the real agent loop instead.
+_GREETING_RE = re.compile(
+    r"^(hi+|hey+|hello+|yo+|howdy|salam|assalamualaikum|marhaba|مرحبا|اهلا|أهلا|السلام عليكم)"
+    r"\s*(novera|there)?\s*[!.,؟?]*$",
+    re.IGNORECASE,
+)
+
+
+def _is_plain_greeting(text: str) -> bool:
+    return bool(_GREETING_RE.match((text or "").strip()))
+
+
+def _greeting_reply(user: Optional[dict[str, Any]], lang: str) -> str:
+    """A bare "hi/hey/hello" gets an instant, static feature-list reply
+    instead of spending a full LLM round-trip on a message with nothing to
+    actually decide (2026-08-23, Hassan's call — same request that asked
+    the admin trigger get its own feature list). Reuses that exact admin
+    message when the resolved account is the admin/demo one."""
+    if user and demo_account.is_admin_account(user["id"]):
+        return _admin_intro_message(lang)
+    if not user:
+        return (
+            "👋 Hi! I'm NOVERA's WhatsApp Agent for saliva-biosensor health screening. This number "
+            "isn't linked to an account yet — sign up here with this same phone number, then message "
+            "me again and I can:\n\n"
+            "• Show your latest biomarker reading & report\n"
+            "• Send your report as a PDF or a spoken voice note\n"
+            "• Send your natural-recovery / self-care plan\n"
+            "• Tell you what your doctor has noted\n"
+            "• Book, cancel, or reschedule an appointment\n"
+            "• Arm the shared sensor for your next reading\n\n"
+            f"Sign up here: {config.SIGNUP_URL}"
+            if lang != "ar" else
+            "👋 مرحباً! أنا وكيل واتساب نوفيرا لفحص الصحة عبر مستشعر اللعاب. هذا الرقم غير مرتبط بحساب "
+            "بعد — سجّل من هنا بنفس رقم الهاتف هذا ثم راسلني مرة أخرى، وسأتمكن من:\n\n"
+            "• عرض آخر قراءة للمؤشرات الحيوية والتقرير\n"
+            "• إرسال تقريرك كملف PDF أو ملخص صوتي منطوق\n"
+            "• إرسال خطة التعافي الطبيعي / العناية الذاتية\n"
+            "• إخبارك بما سجّله الطبيب\n"
+            "• حجز أو إلغاء أو إعادة جدولة موعد\n"
+            "• تجهيز المستشعر المشترك لقراءتك القادمة\n\n"
+            f"سجّل من هنا: {config.SIGNUP_URL}"
+        )
+    name_bit = f", {user['name']}" if user.get("name") else ""
+    name_bit_ar = f"، {user['name']}" if user.get("name") else ""
+    return (
+        f"👋 Hi{name_bit}! I'm your NOVERA WhatsApp Agent. Message me any time to:\n\n"
+        "• Check your latest biomarker reading & report\n"
+        "• Get your report as a PDF or a spoken voice note\n"
+        "• Get your natural-recovery / self-care plan\n"
+        "• See what your doctor has noted\n"
+        "• Book, cancel, or reschedule an appointment\n"
+        "• Request a retest\n"
+        "• Arm the sensor for your next reading\n\n"
+        "Just tell me what you'd like."
+        if lang != "ar" else
+        f"👋 مرحباً{name_bit_ar}! أنا وكيل واتساب نوفيرا. راسلني في أي وقت من أجل:\n\n"
+        "• التحقق من آخر قراءة للمؤشرات الحيوية والتقرير\n"
+        "• الحصول على تقريرك كملف PDF أو ملخص صوتي منطوق\n"
+        "• الحصول على خطة التعافي الطبيعي / العناية الذاتية\n"
+        "• معرفة ما سجّله الطبيب\n"
+        "• حجز أو إلغاء أو إعادة جدولة موعد\n"
+        "• طلب إعادة الفحص\n"
+        "• تجهيز المستشعر لقراءتك القادمة\n\n"
+        "فقط أخبرني بما تريد."
+    )
 
 
 def _admin_booking_caution(user: Optional[dict[str, Any]], lang: str) -> str:
@@ -1072,43 +1185,7 @@ def handle_inbound(from_number: str, text: str, lang: str = "en") -> str:
     admin_row = _try_admin_trigger(from_number, text)
     if admin_row:
         whatsapp_context.mark_inbound(admin_row["id"])
-        # Feature list rewritten (2026-08-23, Hassan's report) — used to be
-        # one vague sentence. Every bullet is a real tool actually offered to
-        # this session below (_build_tools with a registered user + phone +
-        # within_window=True + allow_screening default True) — keep this list
-        # in sync if a tool is added/removed from that path.
-        reply = (
-            "🔑 Admin/demo mode is ON for this number for the next 24h — you're testing the full "
-            "NOVERA experience as the demo account, no real sensor reading needed. You can ask me to:\n\n"
-            "• Run the screening pipeline / generate a report from the latest (synthetic) reading\n"
-            "• Send the report as a PDF\n"
-            "• Send a spoken voice-note summary\n"
-            "• Send the natural-recovery / self-care plan\n"
-            "• Tell you what a doctor has noted (patient context memory)\n"
-            "• Check slot availability, book / cancel / reschedule an appointment\n"
-            "• Request a retest\n"
-            "• Arm the shared sensor for a next capture\n\n"
-            "⚠️ Caution: any appointment you book here is a REAL booking placed in the clinic's real "
-            "system on the demo account — it is not simulated. In real (non-admin) operation, an "
-            "appointment is only ever booked automatically when a real NOVERA Product sensor reading "
-            "actually flags a concern — not on request like this. If you book one here just to test the "
-            "flow, remember to cancel it afterward so it doesn't sit as a real slot."
-            if lang != "ar" else
-            "🔑 تم تفعيل وضع الإدارة/التجربة لهذا الرقم لمدة 24 ساعة — أنت تختبر تجربة نوفيرا الكاملة "
-            "كحساب تجريبي، دون الحاجة لقراءة حقيقية من المستشعر. يمكنك أن تطلب مني:\n\n"
-            "• تشغيل مسار الفحص / إنشاء تقرير من آخر قراءة (تجريبية)\n"
-            "• إرسال التقرير كملف PDF\n"
-            "• إرسال ملخص صوتي منطوق\n"
-            "• إرسال خطة التعافي الطبيعي / العناية الذاتية\n"
-            "• إخبارك بما سجّله الطبيب (ذاكرة سياق المريض)\n"
-            "• التحقق من توفر المواعيد، أو حجز/إلغاء/إعادة جدولة موعد\n"
-            "• طلب إعادة الفحص\n"
-            "• تجهيز المستشعر المشترك لقراءة قادمة\n\n"
-            "⚠️ تنبيه: أي موعد تحجزه هنا هو حجز حقيقي فعلاً في نظام العيادة الحقيقي على الحساب التجريبي "
-            "— وليس محاكاة. في التشغيل الفعلي (غير الإداري)، لا يُحجز الموعد تلقائيًا إلا عندما ترصد "
-            "قراءة حقيقية من منتج نوفيرا مشكلة فعلية — وليس بمجرد الطلب كما هنا. إذا حجزت موعدًا هنا "
-            "لتجربة المسار فقط، تذكّر إلغاءه لاحقًا حتى لا يبقى كموعد حقيقي."
-        )
+        reply = _admin_intro_message(lang)
         result = whatsapp_client.send_message(reply, to=from_number)
         if result.get("delivered"):
             whatsapp_context.mark_outbound(admin_row["id"])
@@ -1123,6 +1200,18 @@ def handle_inbound(from_number: str, text: str, lang: str = "en") -> str:
 
     if user:
         whatsapp_context.mark_inbound(user["id"])
+
+    if _is_plain_greeting(text):
+        # Bug fix (2026-08-23, Hassan's call): a bare "hi"/"hey"/"hello
+        # Novera" used to go through the full LLM agent loop for a message
+        # with nothing to actually decide — answered here directly instead,
+        # both for the instant feature-list menu and to save a full LLM
+        # round-trip (same latency motivation as _SELF_SENDING_TOOL_NAMES).
+        reply = _greeting_reply(user, lang)
+        result = whatsapp_client.send_message(reply, to=from_number)
+        if result.get("delivered") and user:
+            whatsapp_context.mark_outbound(user["id"])
+        return ""
 
     if not config.AI_ENABLED:
         logger.info("whatsapp_agent: AI not configured, using deterministic fallback for phone=%s", phone)
