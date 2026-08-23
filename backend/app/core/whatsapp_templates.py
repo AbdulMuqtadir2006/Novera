@@ -22,7 +22,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from .. import config
-from . import whatsapp_client
+from . import clinic, whatsapp_client
 
 # Meta template names — must match exactly what's submitted for approval.
 TEMPLATE_NAME = {
@@ -84,12 +84,35 @@ def _send_gated(
 
 
 def send_appointment_offer(context: dict[str, Any], to: str, patient_name: str, organ: str, case_id: Optional[str]) -> dict[str, Any]:
+    """Doctor naming (2026-08-23, Hassan's call): when clinic.doctor_for_organ
+    has a real doctor on file for this organ, the freeform offer names them
+    and gives one condensed line on their background instead of a generic
+    "book a follow-up" — see clinic.DOCTORS for why it's deliberately terse
+    (one line, not the doctor's full bio) and organ-scoped (never claims a
+    doctor for an organ they weren't actually assigned to).
+
+    Freeform-only for now: the pre-approved Meta template (used outside the
+    24h window) still has its original 4 variables — adding a 5th (doctor
+    name) means resubmitting that template body to Meta for re-approval,
+    a manual step outside this codebase (see this module's own docstring).
+    Until that happens, a patient outside the window gets the organ-only
+    template text, no doctor name — a real, temporary asymmetry with the
+    freeform path, not a bug."""
     ref = f" (ref {case_id})" if case_id else ""
-    freeform = (
-        f"Hi {patient_name}, your latest NOVERA screening flagged your {organ.lower()} health as worth "
-        f"a follow-up{ref}. Would you like me to book an appointment at {config.CLINIC_NAME}, "
-        f"{config.CLINIC_BRANCH}? Reply YES to book or NO to skip."
-    )
+    doctor = clinic.doctor_for_organ(organ)
+    if doctor:
+        freeform = (
+            f"Hi {patient_name}, your latest NOVERA screening flagged your {organ.lower()} health as worth "
+            f"a follow-up{ref}. We'd suggest {doctor['name']}, {doctor['blurb']}. Would you like me to book "
+            f"an appointment with {doctor['name']} at {config.CLINIC_NAME}, {config.CLINIC_BRANCH}? "
+            "Reply YES to book or NO to skip."
+        )
+    else:
+        freeform = (
+            f"Hi {patient_name}, your latest NOVERA screening flagged your {organ.lower()} health as worth "
+            f"a follow-up{ref}. Would you like me to book an appointment at {config.CLINIC_NAME}, "
+            f"{config.CLINIC_BRANCH}? Reply YES to book or NO to skip."
+        )
     return _send_gated(
         context=context,
         to=to,

@@ -13,7 +13,7 @@ already booked. core/booking.py layers the double-booking check on top.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 from .. import config
@@ -68,6 +68,30 @@ def next_slot(current: datetime) -> datetime:
     if candidate.hour < config.CLINIC_OPEN_HOUR:
         return candidate.replace(hour=config.CLINIC_OPEN_HOUR, minute=0, second=0, microsecond=0)
     return candidate
+
+
+# Named doctors per flagged organ (2026-08-23, Hassan's call) — when a real
+# doctor is on file for the organ a screening flagged, the appointment offer
+# names them specifically instead of a generic "book a follow-up." `blurb`
+# is a condensed, factual one-liner (never the full bio pasted verbatim —
+# don't spam the patient) built only from what was actually provided about
+# that doctor; never invent a specialty they don't have. Only LIVER is
+# populated so far — KIDNEY/ORAL fall back to the organ-only offer
+# (whatsapp_templates.send_appointment_offer's existing behavior) until a
+# real doctor is provided for them.
+DOCTORS: dict[str, dict[str, str]] = {
+    "LIVER": {
+        "name": "Dr. Maqbool Baloch",
+        "blurb": (
+            "a General Practitioner with 21+ years' experience in chronic condition "
+            "management, diabetes/hypertension follow-up, and preventive care"
+        ),
+    },
+}
+
+
+def doctor_for_organ(organ: str) -> Optional[dict[str, str]]:
+    return DOCTORS.get(organ)
 
 
 def location() -> dict[str, Any]:
