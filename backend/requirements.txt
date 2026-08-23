@@ -17,3 +17,4 @@ langchain-core>=0.3
 requests>=2.32
 tzdata>=2024.1
 fpdf2>=2.7
+gTTS>=2.5

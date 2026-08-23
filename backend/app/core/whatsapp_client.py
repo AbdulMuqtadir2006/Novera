@@ -98,6 +98,56 @@ def send_document(
         return {"delivered": False, "simulated": False, "reason": detail, "to": to}
 
 
+def send_audio(
+    audio_bytes: bytes, filename: str = "voice-note.mp3", to: Optional[str] = None, simulate: bool = False
+) -> dict[str, Any]:
+    """Sends an MP3 as a WhatsApp audio message — same upload-then-reference
+    two-call pattern as send_document(). Meta's audio type doesn't accept a
+    caption field (unlike document/image), so there's none here.
+
+    Note (2026-08-23): MP3 (audio/mpeg) renders as a standard tappable audio
+    attachment with a play bar, not WhatsApp's own-recorded-voice-message
+    bubble (waveform + mic icon) — that specific UI is reserved for OGG
+    files encoded with the Opus codec, which needs an audio encoder (e.g.
+    ffmpeg) this backend doesn't ship. Still real synthesized speech the
+    patient can tap and play, just not that one UI treatment."""
+    to = to or config.WHATSAPP_TO
+    if simulate or not config.WHATSAPP_ENABLED or not to:
+        reason = "simulate" if simulate else ("meta_not_configured" if not config.WHATSAPP_ENABLED else "no_recipient")
+        print(f"[whatsapp:simulated:{reason}] -> {to or '(no recipient)'}\n[audio: {filename}, {len(audio_bytes)} bytes]\n")
+        return {"delivered": False, "simulated": True, "reason": reason, "to": to}
+
+    headers = {"Authorization": f"Bearer {config.META_WHATSAPP_TOKEN}"}
+    try:
+        upload_url = f"https://graph.facebook.com/{config.META_API_VERSION}/{config.META_PHONE_NUMBER_ID}/media"
+        upload_resp = requests.post(
+            upload_url,
+            headers=headers,
+            files={"file": (filename, audio_bytes, "audio/mpeg")},
+            data={"messaging_product": "whatsapp", "type": "audio/mpeg"},
+            timeout=30,
+        )
+        upload_resp.raise_for_status()
+        media_id = upload_resp.json()["id"]
+
+        send_url = f"https://graph.facebook.com/{config.META_API_VERSION}/{config.META_PHONE_NUMBER_ID}/messages"
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": _normalize(to),
+            "type": "audio",
+            "audio": {"id": media_id},
+        }
+        send_resp = requests.post(send_url, headers={**headers, "Content-Type": "application/json"}, json=payload, timeout=30)
+        send_resp.raise_for_status()
+        data = send_resp.json()
+        message_id = (data.get("messages") or [{}])[0].get("id")
+        return {"delivered": True, "simulated": False, "message_id": message_id, "to": to}
+    except Exception as exc:
+        detail = getattr(getattr(exc, "response", None), "text", str(exc))
+        print(f"[whatsapp] audio send failed: {detail}")
+        return {"delivered": False, "simulated": False, "reason": detail, "to": to}
+
+
 def send_template_message(
     template_name: str,
     variables: list[str],

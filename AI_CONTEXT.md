@@ -382,11 +382,42 @@ not kept as a working alias. What actually moved, in order:
 7. **Physical ESP32 hardware**: `hardware/esp32_sensor/esp32_sensor.ino`'s `API_URL`/`PING_URL` were
    hardcoded to `api.echo-nova.online` — went dead the moment step 2 happened, since editing the
    `.ino` source doesn't affect what's already flashed onto the physical device. Source updated to
-   `api.novera.fun`; **still needs a real re-flash of the physical device** (Hassan's own action,
-   outside anything Claude can do remotely) before the sensor can submit readings again.
+   `api.novera.fun`, then actually re-flashed onto the connected device via `arduino-cli` (compiled +
+   uploaded over COM3, `esp32:esp32:esp32` FQBN) once Hassan had it plugged in again — done.
 8. **`.scratch/get-novera.html`** (untracked, not part of git): caption/link text updated to
    `www.novera.fun`, but the embedded QR code is a baked PNG still visually encoding the old, now-dead
    URL — the image itself needs regenerating, not just the text, before this page is shared again.
+
+### WhatsApp duplicate messages + real voice notes (2026-08-23)
+
+Two separate user-reported bugs, both in `backend/app/core/whatsapp_agent.py`:
+
+1. **Duplicate sends.** Several tools (`send_report_pdf`, `send_voice_note`, `send_self_care_plan`,
+   `send_appointment_offer`, `send_post_appointment_followup`, `send_meal_checkin`,
+   `send_wellness_checkin` — see `_SELF_SENDING_TOOL_NAMES`) message the patient directly as a side
+   effect, then return a status string. The system prompt tells the model to relay a tool's
+   "ready-made patient-facing message" back verbatim — correct for `book/cancel/reschedule_appointment`
+   (which only ever return a string), wrong for these 7, which produced a genuine second send of a
+   redundant restatement. Fixed by tracking `self_send_fired` through `_run_agent_loop` and having
+   `handle_inbound` return `""` instead of `reply` when it fired; `routers/whatsapp.py`'s
+   `_process_and_reply` now only sends `if reply:`. A **second, separate** instance of the same bug was
+   found in the admin/demo trigger branch (`madaar`) — it sends its confirmation directly via
+   `whatsapp_client.send_message` and then also `return`ed it, bypassing `_run_agent_loop` entirely so
+   the first fix didn't cover it; same fix applied there (`return ""`). Also added an explicit system
+   prompt instruction telling the model to stop immediately after calling a self-sending tool rather
+   than draft a restatement it won't need — trims a full wasted LLM round-trip off reply latency, which
+   was the other half of the same user report ("messages are slow").
+2. **Voice notes were text.** `send_voice_note` previously sent the spoken-style script as a plain
+   WhatsApp text message with a disclaimer that no TTS pipeline existed. Now genuinely synthesizes
+   speech via `core/tts.py` (gTTS — no API key, no ffmpeg dependency, outputs MP3 directly) and sends it
+   as a real audio attachment via `whatsapp_client.send_audio` (new function, same upload-then-reference
+   pattern as `send_document`). Chose gTTS over a paid TTS API specifically to avoid adding a new
+   required secret for a single feature; it's an unofficial endpoint with no uptime/rate-limit
+   guarantee, so `send_voice_note` degrades to the old text-message behavior on `tts.TTSError`. Also
+   fixed a latent bug in the same tool: it hardcoded `lang="en"` to `content_llm.voice_agent` regardless
+   of the conversation's actual language — now passes the real `lang`. **Known limitation**: MP3 renders
+   in WhatsApp as a standard tappable audio attachment, not the native voice-message bubble (waveform +
+   mic icon) — that UI is reserved for OGG/Opus, which needs an audio encoder this backend doesn't ship.
 
 ## Key files / architecture
 

@@ -45,6 +45,7 @@ from . import (
     report_pdf,
     scoring,
     screening_llm,
+    tts,
     whatsapp_client,
     whatsapp_context,
     whatsapp_gating,
@@ -524,28 +525,37 @@ def _build_tools(
 
         @tool
         def send_voice_note() -> str:
-            """Generate a spoken-style screening summary and send it to the
-            patient. NOTE — current limitation, be honest with the patient
-            about it if asked directly: this sends the summary as a WRITTEN
-            text message, not a real synthesized audio voice note — no
-            text-to-speech audio pipeline is wired up on the backend yet.
-            Don't tell the patient "here's your voice note" as if audio was
-            attached; frame it as a written spoken-style summary."""
+            """Generate a spoken-style screening summary, synthesize it as
+            real speech audio, and send it to the patient as a WhatsApp
+            voice note. Only call when the patient has clearly asked for a
+            voice note/audio/spoken summary."""
             if not user:
                 return "No account is linked to this phone number, so there's no summary to send."
             row = reference_data.get_latest_row(user["id"])
             if not row:
                 return "This patient has no biomarker readings on file yet."
             reading = reference_data.row_to_reading(row)
-            voice_out = content_llm.voice_agent(reading, lang="en")
+            voice_out = content_llm.voice_agent(reading, lang=lang)
             script = voice_out.get("script", "")
-            body = "🎙️ Spoken-style summary (text — audio isn't wired up yet):\n\n" + script
-            result = whatsapp_client.send_message(body, to=phone)
+            try:
+                audio_bytes = tts.synthesize(script, lang=lang)
+            except tts.TTSError as exc:
+                # Degrade to text rather than leave the patient with nothing
+                # (2026-08-23: gTTS is an unofficial endpoint with no uptime
+                # guarantee — see tts.py's own comment).
+                logger.warning("whatsapp_agent send_voice_note: TTS failed, falling back to text: %s", exc)
+                body = "🎙️ Spoken-style summary (voice synthesis is temporarily unavailable):\n\n" + script
+                result = whatsapp_client.send_message(body, to=phone)
+                if result.get("delivered"):
+                    whatsapp_context.mark_outbound(user["id"])
+                    return "Voice synthesis failed, so this was sent as a written spoken-style summary instead."
+                return f"Sending the summary failed ({result.get('reason', 'unknown error')})."
+            result = whatsapp_client.send_audio(audio_bytes, filename="novera-voice-summary.mp3", to=phone)
             logger.info("whatsapp_agent send_voice_note: phone=%s delivered=%s", phone, result.get("delivered"))
             if result.get("delivered"):
                 whatsapp_context.mark_outbound(user["id"])
-                return "Sent as a written spoken-style summary (real audio synthesis isn't built yet)."
-            return f"Sending the summary failed ({result.get('reason', 'unknown error')})."
+                return "A real synthesized-audio voice note was sent successfully as a WhatsApp audio attachment."
+            return f"Sending the voice note failed ({result.get('reason', 'unknown error')})."
 
         @tool
         def send_self_care_plan() -> str:
