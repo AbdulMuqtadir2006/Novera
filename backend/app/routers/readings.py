@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from .. import config, db
-from ..core import color_calibration, reference_data, whatsapp_agent
+from ..core import color_calibration, reading_synthesis, reference_data, whatsapp_agent
 from ..deps import require_user
 from ..schemas import ReadingIn
 
@@ -22,14 +22,12 @@ def _round(v: float, dp: int) -> float:
     return round(v * f) / f
 
 
-def _jitter(base: float, amp: float, dp: int) -> float:
-    return _round(base + (random.random() - 0.5) * amp, dp)
-
-
 def _stabilize(base: float, amp: float, lo: float, hi: float, dp: int) -> float:
     """Tiny drift off `base`, clamped inside [lo, hi]. Used in place of a raw
     color-calibration match while that calibration is too noisy to trust —
-    see config.SENSOR_STABILIZATION_ENABLED."""
+    see config.SENSOR_STABILIZATION_ENABLED. (Only used by the raw-color-
+    channels branch below now — the plain no-body-supplied path delegates
+    to core/reading_synthesis.synthesize() instead, see add_reading.)"""
     return _round(min(hi, max(lo, base + (random.random() - 0.5) * amp)), dp)
 
 
@@ -62,12 +60,10 @@ def latest(user: dict = Depends(require_user)):
 
 @router.get("/readings")
 def history(days: int = 30, user: dict = Depends(require_user)):
-    days = max(1, min(365, days))
-    rows = db.fetch_all(
-        'SELECT * FROM readings WHERE user_id = %s ORDER BY "timestamp" DESC, id DESC LIMIT %s',
-        (user["id"], days),
-    )
-    return [reference_data.row_to_reading(r) for r in reversed(rows)]
+    # Delegates entirely to reference_data.get_reading_history (2026-08-23)
+    # — used to inline the same query a second time; now single-sourced, and
+    # picks up its admin/demo auto-seed for free (see that function).
+    return reference_data.get_reading_history(user["id"], days)
 
 
 @router.post("/readings", status_code=201)
@@ -105,6 +101,7 @@ def add_reading(body: ReadingIn, background_tasks: BackgroundTasks):
     owner_user_id = pending_row["pending_sample_user_id"] if pending_row else None
     logger.info("readings: new capture, owner_user_id=%s (None = orphaned/unrequested)", owner_user_id)
     last = reference_data.get_latest_row(owner_user_id) if owner_user_id else None
+    synthesized = reading_synthesis.synthesize(last)
 
     if config.SENSOR_STABILIZATION_ENABLED:
         # Real DHT11 reading is trusted hardware-wise, but until real
@@ -112,10 +109,9 @@ def add_reading(body: ReadingIn, background_tasks: BackgroundTasks):
         # consistent with the other stabilized biomarkers: tiny drift off
         # the last reading, clamped inside the normal reference band —
         # rather than trusting the device's/body's raw value.
-        temp_lo, temp_hi = reference_data.REFERENCE["temperature"]["range"]
-        temperature = _stabilize(last["temperature"] if last else (temp_lo + temp_hi) / 2, 0.2, temp_lo, temp_hi, 1)
+        temperature = synthesized["temperature"]
     else:
-        temperature = body.temperature if body.temperature is not None else _jitter(last["temperature"] if last else 36.9, 0.6, 1)
+        temperature = body.temperature if body.temperature is not None else synthesized["temperature"]
 
     if body.top_raw_channels and body.bottom_raw_channels:
         # Real color-strip capture: derive ph/creatinine/urea from the two
@@ -152,11 +148,21 @@ def add_reading(body: ReadingIn, background_tasks: BackgroundTasks):
                 "temperature": temperature,
             }
     else:
+        # Bug fix (found 2026-08-23 while extracting core/reading_synthesis.py):
+        # this used to recompute its own fresh `temperature` here — via
+        # `body.temperature if body.temperature is not None else _jitter(...)`
+        # — completely ignoring the `temperature` variable already correctly
+        # computed above (which respects SENSOR_STABILIZATION_ENABLED and,
+        # per the comment there, should never trust body.temperature while
+        # stabilization is on). Every no-raw-channels reading since sensor
+        # stabilization shipped was silently allowing a client-supplied
+        # temperature to override the stabilized value. Reuses the same
+        # `temperature` var the raw-channels branch above already uses.
         reading = {
-            "ph": body.ph if body.ph is not None else _jitter(last["ph"] if last else 6.8, 0.6, 2),
-            "creatinine": body.creatinine if body.creatinine is not None else _jitter(last["creatinine"] if last else 1.0, 0.4, 2),
-            "urea": body.urea if body.urea is not None else _jitter(last["urea"] if last else 22, 8, 1),
-            "temperature": body.temperature if body.temperature is not None else _jitter(last["temperature"] if last else 36.9, 0.6, 1),
+            "ph": body.ph if body.ph is not None else synthesized["ph"],
+            "creatinine": body.creatinine if body.creatinine is not None else synthesized["creatinine"],
+            "urea": body.urea if body.urea is not None else synthesized["urea"],
+            "temperature": temperature,
         }
     row = db.fetch_one(
         """

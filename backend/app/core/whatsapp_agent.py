@@ -39,6 +39,7 @@ from . import (
     booking,
     clinic,
     content_llm,
+    demo_account,
     reasoning_stream,
     reference_data,
     report_pdf,
@@ -132,6 +133,11 @@ _TOOL_TO_NODE = {
     "reschedule_appointment": "wa_tool_booking",
     "send_report_pdf": "wa_tool_media",
     "send_voice_note": "wa_tool_media",
+    # Bundled into the same diagram node as report/voice (2026-08-23) — the
+    # live workflow diagram's "Report & Voice" node/hover-detail text
+    # doesn't yet mention self-care specifically; a frontend-copy follow-up,
+    # not required for this tool to work.
+    "send_self_care_plan": "wa_tool_media",
     "send_appointment_offer": "wa_tool_offer",
     "send_post_appointment_followup": "wa_tool_checkin",
     "send_meal_checkin": "wa_tool_checkin",
@@ -178,6 +184,59 @@ def _find_user_by_phone(phone: str) -> Optional[dict[str, Any]]:
     # broadcast), so logging the normalized number here is fine.
     logger.info("whatsapp_agent: phone lookup normalized=%s matched_user_id=%s",
                 normalized, row["id"] if row else None)
+    return row
+
+
+# Admin/demo WhatsApp sessions (2026-08-23, Hassan's call) — in-process
+# only, same accepted-limitation pattern as _reading_run_in_progress/
+# _delayed_reading_followup elsewhere in this codebase: an app restart
+# silently drops any active session, and a multi-worker deployment wouldn't
+# share this across processes. Fine for a prototype tested by one person;
+# not something to build a real session store for.
+ADMIN_SESSION_TTL_SECONDS = 24 * 3600
+_admin_authenticated_at: dict[str, float] = {}  # normalized phone -> time.monotonic()
+
+
+def _admin_session_user() -> Optional[dict[str, Any]]:
+    admin_id = demo_account.admin_user_id()
+    if not admin_id:
+        return None
+    return db.fetch_one("SELECT id, email, name, phone FROM users WHERE id = %s", (admin_id,))
+
+
+def _admin_session_active(phone: str) -> bool:
+    ts = _admin_authenticated_at.get(phone)
+    if ts is None:
+        return False
+    if time.monotonic() - ts > ADMIN_SESSION_TTL_SECONDS:
+        del _admin_authenticated_at[phone]
+        return False
+    return True
+
+
+def _try_admin_trigger(from_number: str, text: str) -> Optional[dict[str, Any]]:
+    """Admin/demo access (2026-08-23, Hassan's call) — see config.ADMIN_WA_
+    TRIGGER_PHRASE's own docstring for the security tradeoff this makes
+    (a shared-secret phrase, not phone-bound, by explicit choice so it works
+    from any device for demos). Requires the message text to be EXACTLY the
+    configured phrase (case/whitespace-insensitive) — not a substring match,
+    so a patient's real message can't accidentally trigger it. On match,
+    remembers this phone as admin-authenticated for ADMIN_SESSION_TTL_
+    SECONDS (see _admin_session_active) so the sender doesn't have to resend
+    the phrase every message. Returns the admin user row on match, None
+    otherwise (including when the feature is unconfigured, or the admin
+    account hasn't been created yet)."""
+    phrase = config.ADMIN_WA_TRIGGER_PHRASE
+    if not phrase or not text or text.strip().casefold() != phrase.strip().casefold():
+        return None
+    row = _admin_session_user()
+    if row:
+        _admin_authenticated_at[normalize_phone(from_number)] = time.monotonic()
+        # Server-side logs only (Railway's private deploy logs, same
+        # discipline as _find_user_by_phone's own diagnostic above) — the
+        # trigger phrase itself is never logged, only that it fired and
+        # which sender number used it, for an audit trail.
+        logger.info("whatsapp_agent: admin trigger recognized, sender=%s", normalize_phone(from_number))
     return row
 
 
@@ -256,6 +315,36 @@ def _facts_to_text(facts: dict[str, Any]) -> str:
         lines.append(whatsapp_context.context_to_text(wa_context))
 
     return "\n".join(lines)
+
+
+def _format_self_care_plan_for_whatsapp(plan: dict[str, Any], lang: str) -> str:
+    """Renders a SelfCareOut-shaped dict (content_llm.self_care_agent's
+    return shape — focusTitle/focusBody/dietPlan/areaTips) as readable
+    WhatsApp text (2026-08-23, the send_self_care_plan tool). Deliberately
+    skips the `nutrition` macro breakdown (calories/protein/carbs/fat per
+    meal) — that's dense tabular detail suited to the website's Natural
+    Recovery page, not a WhatsApp message; the diet plan + area tips are the
+    part a patient actually wants to read on their phone."""
+    diet = plan.get("dietPlan") or {}
+    lines = [f"🌿 *{plan.get('focusTitle', 'Your natural recovery focus')}*", plan.get("focusBody", "").strip()]
+    diet_label = "الوجبات" if lang == "ar" else "Diet plan"
+    lines += ["", f"*{diet_label}:*"]
+    meal_labels = (
+        {"breakfast": "الفطور", "lunch": "الغداء", "dinner": "العشاء", "snacks": "وجبات خفيفة", "hydration": "السوائل"}
+        if lang == "ar"
+        else {"breakfast": "Breakfast", "lunch": "Lunch", "dinner": "Dinner", "snacks": "Snacks", "hydration": "Hydration"}
+    )
+    for key in ("breakfast", "lunch", "dinner", "snacks", "hydration"):
+        if diet.get(key):
+            lines.append(f"• {meal_labels[key]}: {diet[key]}")
+    area_tips = plan.get("areaTips") or []
+    if area_tips:
+        tips_label = "نصائح حسب المجال:" if lang == "ar" else "Area tips:"
+        lines += ["", f"*{tips_label}*"]
+        for tip in area_tips:
+            if tip.get("tip"):
+                lines.append(f"• {tip.get('name', tip.get('id', ''))}: {tip['tip']}")
+    return "\n".join(line for line in lines if line is not None)
 
 
 def _fallback_answer(facts: dict[str, Any], lang: str) -> str:
@@ -438,7 +527,34 @@ def _build_tools(
                 return "Sent as a written spoken-style summary (real audio synthesis isn't built yet)."
             return f"Sending the summary failed ({result.get('reason', 'unknown error')})."
 
-        tools += [send_report_pdf, send_voice_note]
+        @tool
+        def send_self_care_plan() -> str:
+            """Generate (or reuse the already-persisted) natural-recovery /
+            self-care plan — what to eat and what to do to recover naturally
+            — and send it as a WhatsApp message. Same content the website's
+            Natural Recovery page shows, formatted as readable text. Only
+            call when the patient has clearly asked what to eat/do to
+            recover, or asked for their diet/self-care plan."""
+            if not user:
+                return "No account is linked to this phone number, so there's no plan to generate."
+            plan = reference_data.get_self_care_plan(user["id"])
+            if not plan:
+                row = reference_data.get_latest_row(user["id"])
+                if not row:
+                    return "This patient has no biomarker readings on file yet, so there's no plan to generate."
+                reading = reference_data.row_to_reading(row)
+                ctx = reference_data.get_context(user["id"])
+                history = reference_data.get_chat_history(user["id"])
+                plan = content_llm.self_care_agent(reading, ctx, history, user["id"], lang)
+            body = _format_self_care_plan_for_whatsapp(plan, lang)
+            result = whatsapp_client.send_message(body, to=phone)
+            logger.info("whatsapp_agent send_self_care_plan: phone=%s delivered=%s", phone, result.get("delivered"))
+            if result.get("delivered"):
+                whatsapp_context.mark_outbound(user["id"])
+                return "Natural-recovery / self-care plan sent as a WhatsApp message."
+            return f"Sending the plan failed ({result.get('reason', 'unknown error')})."
+
+        tools += [send_report_pdf, send_voice_note, send_self_care_plan]
 
     @tool
     def send_appointment_offer(organ: str) -> str:
@@ -782,10 +898,11 @@ def _system_prompt(user: Optional[dict[str, Any]], lang: str, trigger: str) -> s
         f"{restraint_note}\n\n"
         "You have tools to look up this patient's real facts, run the deterministic organ-screening "
         "pipeline on their latest reading and generate their report, book/cancel/reschedule a REAL "
-        "clinic appointment, send their report/a spoken-style summary, send proactive outreach "
-        "messages (appointment offers, follow-ups, meal/wellness check-ins), arm the shared sensor "
-        "device for their next reading, and write back what you learn into their persistent memory "
-        "via update_patient_context. Every send/booking/device/screening tool has an immediate "
+        "clinic appointment, send their report/a spoken-style summary/their natural-recovery self-care "
+        "plan (what to eat and do to recover naturally), send proactive outreach messages (appointment "
+        "offers, follow-ups, meal/wellness check-ins), arm the shared sensor device for their next "
+        "reading, and write back what you learn into their persistent memory via update_patient_context. "
+        "Every send/booking/device/screening tool has an immediate "
         "real-world effect — only call one when it's actually warranted, not reflexively.\n\n"
         "Typical flow: call get_patient_facts first in almost every case, before deciding anything. If "
         "get_patient_facts shows this registered patient has zero readings on file (common right after "
@@ -863,9 +980,33 @@ def _run_agent_loop(messages: list, tools: list) -> tuple[Optional[str], bool]:
 def handle_inbound(from_number: str, text: str, lang: str = "en") -> str:
     """Reactive entry point: a patient sent a WhatsApp message. Always
     returns a reply string — never leaves the patient unanswered, even on
-    total failure (degrades to _fallback_answer())."""
-    user = _find_user_by_phone(from_number)
+    total failure (degrades to _fallback_answer()).
+
+    Admin/demo mode (2026-08-23): see _try_admin_trigger/_admin_session_
+    active. `phone` always stays the real sending device's number (Meta
+    replies must go there regardless of which account `user` resolves to)
+    — only `user` ever changes to the admin account."""
     phone = normalize_phone(from_number)
+
+    admin_row = _try_admin_trigger(from_number, text)
+    if admin_row:
+        whatsapp_context.mark_inbound(admin_row["id"])
+        reply = (
+            "Admin/demo mode is on for this number for the next 24h — you're testing as the "
+            "NOVERA demo account. Ask for your report, the PDF, your natural-recovery plan, what "
+            "your doctor has noted, or try booking; everything works even with no real reading on "
+            "file."
+            if lang != "ar" else
+            "تم تفعيل وضع الإدارة/التجربة لهذا الرقم لمدة 24 ساعة — أنت الآن تختبر حساب نوفيرا "
+            "التجريبي. اطلب تقريرك، ملف PDF، خطة التعافي الطبيعي، ما سجّله الطبيب، أو جرّب الحجز؛ "
+            "كل شيء يعمل حتى بدون قراءة حقيقية."
+        )
+        result = whatsapp_client.send_message(reply, to=from_number)
+        if result.get("delivered"):
+            whatsapp_context.mark_outbound(admin_row["id"])
+        return reply
+
+    user = _admin_session_user() if _admin_session_active(phone) else _find_user_by_phone(from_number)
 
     if user:
         whatsapp_context.mark_inbound(user["id"])

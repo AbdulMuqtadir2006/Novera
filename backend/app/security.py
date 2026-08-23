@@ -94,6 +94,17 @@ def create_user(name: str, email: str, password: str, phone: str) -> dict:
     return _public_user(row)
 
 
+def set_password(user_id: int, password: str) -> None:
+    """Used by scripts/create_admin_account.py to (re)set the admin/demo
+    account's password without going through the signup flow a second time
+    — no website-facing "change password" feature exists yet, this is the
+    only caller today."""
+    if not password or len(password) < 6:
+        raise AuthError("Password must be at least 6 characters")
+    salt, pass_hash = _hash_password(password)
+    db.execute("UPDATE users SET pass_salt = %s, pass_hash = %s WHERE id = %s", (salt, pass_hash, user_id))
+
+
 def authenticate(email: str, password: str) -> Optional[dict]:
     row = db.fetch_one(
         "SELECT * FROM users WHERE email = %s",

@@ -70,22 +70,38 @@ def row_to_reading(row: dict[str, Any]) -> dict[str, Any]:
 def get_latest_row(user_id: int) -> Optional[dict[str, Any]]:
     """Multi-tenant (2026-08-19): scoped to this user only — a reading with
     user_id IS NULL (orphaned, unrequested capture) never shows up here for
-    anyone, by design."""
-    return db.fetch_one(
+    anyone, by design.
+
+    Admin/demo auto-seed (2026-08-23): if this comes back empty, a local
+    (not module-level, to avoid a demo_account <-> reading_synthesis <->
+    reference_data import cycle) import checks whether user_id is the
+    configured admin account — see core/demo_account.py. A no-op for every
+    other account; costs nothing when config.ADMIN_EMAIL is unset."""
+    row = db.fetch_one(
         'SELECT * FROM readings WHERE user_id = %s ORDER BY "timestamp" DESC, id DESC LIMIT 1',
         (user_id,),
     )
+    if row is None:
+        from . import demo_account
+        row = demo_account.ensure_seeded(user_id)
+    return row
 
 
 def get_reading_history(user_id: int, days: int = 30) -> list[dict[str, Any]]:
     """Oldest -> newest, same shape as GET /api/readings. Used by report_agent's
     get_reading_history tool so a report can reference a trend instead of only
-    ever seeing the single latest reading."""
+    ever seeing the single latest reading. Same admin/demo auto-seed as
+    get_latest_row above."""
     days = max(1, min(365, days))
     rows = db.fetch_all(
         'SELECT * FROM readings WHERE user_id = %s ORDER BY "timestamp" DESC, id DESC LIMIT %s',
         (user_id, days),
     )
+    if not rows:
+        from . import demo_account
+        seeded = demo_account.ensure_seeded(user_id)
+        if seeded:
+            rows = [seeded]
     return [row_to_reading(r) for r in reversed(rows)]
 
 

@@ -125,5 +125,30 @@ SUPPRESS_SCREENING_FLAGS = os.getenv("SUPPRESS_SCREENING_FLAGS", "true").strip()
 # trigger.
 READING_FOLLOWUP_DELAY_SECONDS = max(0, int(os.getenv("READING_FOLLOWUP_DELAY_SECONDS", "600")))
 
+# ---- admin/demo account (2026-08-23, Hassan's call) ----
+# ADMIN_EMAIL names a real account (created once via
+# scripts/create_admin_account.py, never via this file) that core/demo_
+# account.py keeps auto-seeded with at least one synthetic reading, so
+# every feature (dashboard, reports, self-care, voice, screening, WhatsApp)
+# works for testing/demos even with no sensor connected and no real test
+# ever taken. Empty = feature fully off (every account behaves exactly as
+# before). Not a secret itself — an email address, not a password — but
+# still env-only, never hardcoded, so which account gets this treatment is
+# a deploy-time decision, not baked into source.
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip().lower()
+
+# ADMIN_WA_TRIGGER_PHRASE — a shared-secret phrase that, when sent as the
+# ENTIRE text of an inbound WhatsApp message (exact match, case/whitespace-
+# insensitive) from ANY phone number, resolves that conversation to the
+# ADMIN_EMAIL account instead of doing normal phone-based patient lookup —
+# lets Hassan demo the full WhatsApp flow from someone else's phone without
+# pre-registering their number. Deliberately NOT given a default value here:
+# this is a real bearer-secret backdoor into whichever account it's aimed
+# at, so it must be set explicitly (Railway env var, same as every other
+# secret in this file) — empty means the feature is off, not "guessable
+# default is live." Never log this value; only that the trigger fired and
+# which sender number used it (see whatsapp_agent.py's _try_admin_trigger).
+ADMIN_WA_TRIGGER_PHRASE = os.getenv("ADMIN_WA_TRIGGER_PHRASE", "").strip()
+
 # ---- misc ----
 SERVICE_PORT = int(os.getenv("PORT", "8000"))
