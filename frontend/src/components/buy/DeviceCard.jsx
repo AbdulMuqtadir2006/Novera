@@ -17,7 +17,7 @@ export function DeviceCard({ device, onAdd, onSwitchToStrips }) {
   return (
     <Tilt3DCard className="h-full">
       <div className="grid gap-6 sm:grid-cols-[minmax(0,220px)_1fr]">
-        <ProductImage src="/products/novera-reader.png" alt={device.name} icon={Zap} className="h-48 w-full sm:h-full" />
+        <ProductImage src="/products/novera-reader.jpg" alt={device.name} icon={Zap} className="h-48 w-full sm:h-full" />
 
         <div className="flex flex-col">
           <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-signal/10 px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide text-signal">

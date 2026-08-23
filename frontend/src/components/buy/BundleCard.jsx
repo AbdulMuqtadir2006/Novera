@@ -3,10 +3,11 @@ import { Tilt3DCard } from "./Tilt3DCard";
 import { ProductImage } from "./ProductImage";
 import { useLang } from "../../i18n/LanguageContext";
 
+// Files are real JPEGs (renamed 2026-08-23, were mislabeled .png).
 const IMAGE_BY_SKU = {
-  STARTER: "/products/bundle-starter.png",
-  VALUE: "/products/bundle-value.png",
-  PRO: "/products/bundle-pro.png",
+  STARTER: "/products/bundle-starter.jpg",
+  VALUE: "/products/bundle-value.jpg",
+  PRO: "/products/bundle-pro.jpg",
 };
 
 // One bundle in the §2b comparison grid. `recommended` visually marks the

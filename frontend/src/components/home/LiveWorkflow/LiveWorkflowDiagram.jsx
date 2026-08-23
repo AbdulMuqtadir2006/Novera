@@ -831,7 +831,21 @@ function WorkflowLive() {
                     node.detailKey ? () => setHoveredDetailId((id) => (id === node.id ? null : id)) : undefined
                   }
                   onDetailClick={
-                    node.detailKey ? () => setPinnedDetailId((id) => (id === node.id ? null : node.id)) : undefined
+                    node.detailKey
+                      ? () => {
+                          // Bug fix (found 2026-08-23): a tap on touch devices fires
+                          // onMouseEnter (setting hoveredDetailId) with no reliable
+                          // mouseleave afterward — there's no real pointer to "leave"
+                          // with. Since activeDetailId prioritizes hover over pin, a
+                          // stuck hover from the FIRST node ever tapped permanently
+                          // masked every later tap's pin. Clearing hover here makes a
+                          // real click/tap always win immediately, while leaving
+                          // desktop hover-preview behavior (mouseenter/mouseleave)
+                          // completely untouched.
+                          setHoveredDetailId(null);
+                          setPinnedDetailId((id) => (id === node.id ? null : node.id));
+                        }
+                      : undefined
                   }
                 />
               ))}

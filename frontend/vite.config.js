@@ -55,8 +55,14 @@ export default defineConfig({
           vendor: ["react", "react-dom", "react-router-dom"],
           motion: ["framer-motion", "gsap"],
           charts: ["recharts"],
-          pdf: ["jspdf", "html2canvas"],
-          three: ["three", "@react-three/fiber", "@react-three/drei"],
+          // pdf (jspdf/html2canvas) deliberately NOT grouped here (2026-08-23):
+          // an explicit manualChunks entry makes Vite treat it as an
+          // always-needed vendor chunk and <link rel="modulepreload"> it in
+          // index.html regardless of whether it's ever actually reached —
+          // silently defeating Reports.jsx's dynamic import() of
+          // generateReportPdf.js. Left to Vite's own automatic
+          // dynamic-import-graph chunking instead, which correctly does NOT
+          // preload something only reachable through a real dynamic import.
         },
       },
     },

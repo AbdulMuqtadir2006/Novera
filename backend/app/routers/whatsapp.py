@@ -56,7 +56,11 @@ def _process_and_reply(from_number: str, text: str) -> None:
     same inbound message while this is still running."""
     try:
         reply = whatsapp_agent.handle_inbound(from_number, text, lang="en")
-        whatsapp_client.send_message(reply, to=from_number)
+        # handle_inbound can return "" (2026-08-23 dup-message fix) when a
+        # self-sending tool (e.g. send_report_pdf) already messaged the
+        # patient directly this run — sending `reply` too would double-send.
+        if reply:
+            whatsapp_client.send_message(reply, to=from_number)
     except Exception:
         logger.exception("whatsapp webhook: background processing failed for from=%s", from_number)
 

@@ -4,7 +4,6 @@ import { Download, Check, CircleAlert, Loader2, RefreshCw, Sparkles, Droplet } f
 import { PageShell } from "../components/layout/PageShell";
 import { useLatestReading } from "../hooks/useLatestReading";
 import { getReport } from "../lib/api";
-import { generateReportPdf } from "../components/reports/generateReportPdf";
 import { metricMeta, statusMeta, formatValue } from "../lib/format";
 import { useLang } from "../i18n/LanguageContext";
 import { Wordmark } from "../components/ui/Wordmark";
@@ -138,6 +137,11 @@ export default function Reports() {
     setDownloading(true);
     setError(false);
     try {
+      // Dynamic import (2026-08-23, perf fix): jsPDF + html2canvas are a
+      // ~560KB chunk that used to load on every Reports page visit via a
+      // static import, whether or not the patient ever clicked Download.
+      // Fetched only now, on the actual click.
+      const { generateReportPdf } = await import("../components/reports/generateReportPdf");
       const stamp = new Date(reading.timestamp).toISOString().slice(0, 10);
       await generateReportPdf(docRef.current, `novera-screening-${lang}-${stamp}.pdf`);
       setDone(true);

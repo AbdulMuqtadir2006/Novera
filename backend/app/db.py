@@ -30,6 +30,16 @@ def get_pool() -> ConnectionPool:
         _pool = ConnectionPool(
             config.DATABASE_URL,
             open=False,
+            # min_size/max_size (2026-08-23, perf pass): psycopg_pool's own
+            # default is min_size=4 with max_size defaulting to min_size —
+            # i.e. a hard ceiling of 4 concurrent connections for the whole
+            # app. Multiple dashboard users each polling /readings/latest +
+            # /device/status every few seconds (see frontend's useLatestReading/
+            # useDeviceStatus hooks) can plausibly exceed that under real
+            # concurrent load. Raised to a still-modest ceiling appropriate
+            # for this app's scale, not a guess at a "correct" number.
+            min_size=4,
+            max_size=10,
             kwargs={"row_factory": dict_row, "autocommit": True},
         )
     if _pool.closed:  # only real connect happens here, on first use

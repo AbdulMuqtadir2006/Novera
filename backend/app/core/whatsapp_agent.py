@@ -154,6 +154,26 @@ _TOOL_TO_NODE = {
     "request_retest": "wa_tool_retest",
 }
 
+# Bug fix (found 2026-08-23, user-reported "messages sometimes sent 2 times"):
+# these 7 tools each send a REAL WhatsApp message directly (whatsapp_client.
+# send_message/send_document) as their own side effect, then return a status
+# string describing what they just did. The system prompt tells the model to
+# relay a tool's "ready-made patient-facing message" back practically
+# verbatim as its own final reply — correct and necessary for book/cancel/
+# reschedule_appointment (which only ever return a string, never send
+# anything themselves), but for these 7, the model doing the same thing
+# produces a genuine SECOND real send of a redundant restatement. See
+# _run_agent_loop's self_send_fired tracking and handle_inbound's use of it.
+_SELF_SENDING_TOOL_NAMES = frozenset({
+    "send_report_pdf",
+    "send_voice_note",
+    "send_self_care_plan",
+    "send_appointment_offer",
+    "send_post_appointment_followup",
+    "send_meal_checkin",
+    "send_wellness_checkin",
+})
+
 
 def _wa_emit(node: str, status: str, label: str) -> None:
     """Best-effort — see ws.broadcast_from_thread's own docstring for why
@@ -918,6 +938,12 @@ def _system_prompt(user: Optional[dict[str, Any]], lang: str, trigger: str) -> s
         "(book/cancel/reschedule_appointment, or get_patient_facts telling you no account is linked), "
         "use it as your reply practically verbatim — translate if needed but keep every concrete detail "
         "(dates, times, address, phone, map link) exactly as given.\n\n"
+        "IMPORTANT: send_report_pdf, send_voice_note, send_self_care_plan, send_appointment_offer, "
+        "send_post_appointment_followup, send_meal_checkin, and send_wellness_checkin already send a "
+        "REAL WhatsApp message to the patient directly the moment you call them — their tool result is "
+        "just a status confirmation for you, not something to relay. After calling one of these, do NOT "
+        "write a patient-facing restatement of what you just sent; if there's nothing else left to do, "
+        "stop immediately with a short internal note (e.g. 'sent the PDF report').\n\n"
         f"Keep any message warm and concise (2-5 sentences unless relaying a booking's full details), "
         f"entirely in {lang_name}. This is screening support, not medical advice. Meta's WhatsApp API "
         "only allows free-form replies within 24 hours of the patient's last message — that window is "
@@ -929,9 +955,11 @@ def _system_prompt(user: Optional[dict[str, Any]], lang: str, trigger: str) -> s
     )
 
 
-def _run_agent_loop(messages: list, tools: list) -> tuple[Optional[str], bool]:
+def _run_agent_loop(messages: list, tools: list) -> tuple[Optional[str], bool, bool]:
     """Shared loop for both entry points. Returns (final_text_or_None,
-    hit_iteration_cap)."""
+    hit_iteration_cap, self_send_fired) — self_send_fired is True if any
+    _SELF_SENDING_TOOL_NAMES tool was called this run (see that constant's
+    own comment for why the caller needs this to avoid a duplicate send)."""
     tool_map = {t.name: t for t in tools}
     llm = ChatOpenAI(
         model=config.OPENROUTER_MODEL_CONTENT,
@@ -943,14 +971,15 @@ def _run_agent_loop(messages: list, tools: list) -> tuple[Optional[str], bool]:
         default_headers={"HTTP-Referer": "http://localhost", "X-Title": "NOVERA WhatsApp Agent"},
     ).bind_tools(tools)
 
+    self_send_fired = False
     for _ in range(MAX_ITERATIONS):
         response = llm.invoke(messages)
         messages.append(response)
         tool_calls = getattr(response, "tool_calls", None) or []
         if not tool_calls:
             if isinstance(response.content, str) and response.content.strip():
-                return response.content.strip(), False
-            return None, False
+                return response.content.strip(), False, self_send_fired
+            return None, False, self_send_fired
         for call in tool_calls:
             name = call.get("name")
             args = call.get("args") or {}
@@ -968,19 +997,28 @@ def _run_agent_loop(messages: list, tools: list) -> tuple[Optional[str], bool]:
                     result_text = tool_obj.invoke(args)
                     if wa_node:
                         _wa_emit(wa_node, "success", f"{name} done")
+                    if name in _SELF_SENDING_TOOL_NAMES:
+                        self_send_fired = True
                 except Exception as exc:
                     logger.exception("whatsapp_agent tool %r raised", name)
                     result_text = f"Tool {name} raised an unexpected error: {exc}"
                     if wa_node:
                         _wa_emit(wa_node, "error", f"{name} failed")
             messages.append(ToolMessage(content=str(result_text), tool_call_id=call_id))
-    return None, True
+    return None, True, self_send_fired
 
 
 def handle_inbound(from_number: str, text: str, lang: str = "en") -> str:
-    """Reactive entry point: a patient sent a WhatsApp message. Always
-    returns a reply string — never leaves the patient unanswered, even on
-    total failure (degrades to _fallback_answer()).
+    """Reactive entry point: a patient sent a WhatsApp message. Almost always
+    returns a non-empty reply string for the caller (routers/whatsapp.py's
+    _process_and_reply) to send — never leaves the patient unanswered, even
+    on total failure (degrades to _fallback_answer()).
+
+    Bug fix (2026-08-23): the ONE exception is an empty string "" — returned
+    specifically when a _SELF_SENDING_TOOL_NAMES tool already sent a real
+    message directly this run, meaning the model's own trailing text would
+    be a second, redundant send. Callers MUST check truthiness before
+    sending, not send unconditionally.
 
     Admin/demo mode (2026-08-23): see _try_admin_trigger/_admin_session_
     active. `phone` always stays the real sending device's number (Meta
@@ -1024,8 +1062,9 @@ def handle_inbound(from_number: str, text: str, lang: str = "en") -> str:
     _wa_emit("wa_agent", "start", "WhatsApp Agent deciding")
     reply: Optional[str] = None
     loop_failed = False
+    self_send_fired = False
     try:
-        reply, hit_cap = _run_agent_loop(messages, tools)
+        reply, hit_cap, self_send_fired = _run_agent_loop(messages, tools)
         if hit_cap:
             logger.info("whatsapp_agent: hit iteration cap without a final reply for phone=%s", phone)
     except Exception:
@@ -1038,6 +1077,20 @@ def handle_inbound(from_number: str, text: str, lang: str = "en") -> str:
         _wa_emit("wa_trigger_message", "success", "Patient message handled")
         _wa_emit("wa_agent", "success", "Replied to patient")
         _wa_run_end("WhatsApp Agent replied to an inbound message")
+        if self_send_fired:
+            # Bug fix (2026-08-23): a send_report_pdf/send_voice_note/
+            # send_self_care_plan/send_appointment_offer/send_post_appointment_
+            # followup/send_meal_checkin/send_wellness_checkin tool already sent
+            # a real message directly this run — this `reply` is the model's own
+            # trailing restatement of that, which the caller (routers/whatsapp.py's
+            # _process_and_reply) would otherwise send AGAIN as a second, redundant
+            # message. Empty string, not `reply` — the caller checks truthiness
+            # before sending (see its own updated comment).
+            logger.info(
+                "whatsapp_agent: suppressing duplicate trailing reply after a self-sending tool, phone=%s: %r",
+                phone, reply,
+            )
+            return ""
         return reply
 
     # No tool-produced reply (loop failed, hit the iteration cap, or the
@@ -1145,7 +1198,11 @@ def handle_trigger(trigger: str, user: dict[str, Any], payload: Optional[dict[st
         _wa_emit(wa_trigger_node, "start", f"{trigger} fired")
         _wa_emit("wa_agent", "start", "WhatsApp Agent deciding")
         try:
-            reply, hit_cap = _run_agent_loop(messages, tools)
+            # self_send_fired unused here — handle_trigger never re-sends
+            # `reply` as a message itself (only logs it as a note below); the
+            # duplicate-send risk _run_agent_loop's 3rd return value guards
+            # against is specific to handle_inbound's caller, which does.
+            reply, hit_cap, _self_send_fired = _run_agent_loop(messages, tools)
             if hit_cap:
                 logger.info("whatsapp_agent.handle_trigger: hit iteration cap for trigger=%s user_id=%s",
                             trigger, user["id"])
