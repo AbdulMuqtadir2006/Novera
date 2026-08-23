@@ -51,7 +51,7 @@ from . import (
     whatsapp_gating,
     whatsapp_templates,
 )
-from .device_control import arm_device_for_user
+from .device_control import arm_device_for_user, device_state
 
 logger = logging.getLogger(__name__)
 
@@ -261,6 +261,26 @@ def _try_admin_trigger(from_number: str, text: str) -> Optional[dict[str, Any]]:
     return row
 
 
+def _admin_booking_caution(user: Optional[dict[str, Any]], lang: str) -> str:
+    """Appended (2026-08-23, Hassan's report) to book_appointment/
+    reschedule_appointment's returned text — but only for the admin/demo
+    account, whose bookings are otherwise indistinguishable from a real
+    patient's in the confirmation message. Empty string for every real
+    patient, so this changes nothing about their booking flow."""
+    if not user or not demo_account.is_admin_account(user["id"]):
+        return ""
+    return (
+        "\n\n⚠️ Demo booking made — this is a REAL slot in the clinic's real system on the demo "
+        "account, not a simulation. In real (non-admin) operation, NOVERA never books an "
+        "appointment just because it was asked; it only books automatically when a real NOVERA "
+        "Product sensor reading actually flags a concern. Cancel this if it was just a test."
+        if lang != "ar" else
+        "\n\n⚠️ تم إجراء حجز تجريبي — هذا موعد حقيقي فعلاً في نظام العيادة على الحساب التجريبي، وليس "
+        "محاكاة. في التشغيل الفعلي (غير الإداري)، لا تحجز نوفيرا موعدًا لمجرد الطلب؛ بل تحجزه تلقائيًا "
+        "فقط عندما ترصد قراءة حقيقية من منتج نوفيرا مشكلة فعلية. ألغِ هذا الموعد إذا كان تجربة فقط."
+    )
+
+
 def _gather_patient_facts(user: Optional[dict[str, Any]]) -> dict[str, Any]:
     """Only real, retrieved data — nothing here is generated. Multi-tenant
     (2026-08-19): every read below is scoped to this specific user_id — an
@@ -451,7 +471,7 @@ def _build_tools(
         result = booking.find_and_book_slot(user_id=user["id"] if user else None, phone=phone, channel="whatsapp")
         logger.info("whatsapp_agent book_appointment: phone=%s user_id=%s appointment_id=%s",
                     phone, user["id"] if user else None, result["id"])
-        return whatsapp_client.confirmation_message(result)
+        return whatsapp_client.confirmation_message(result) + _admin_booking_caution(user, lang)
 
     @tool
     def cancel_appointment() -> str:
@@ -478,7 +498,7 @@ def _build_tools(
         new_booking = booking.reschedule_booking(existing["id"], phone=phone, user_id=user["id"] if user else None)
         logger.info("whatsapp_agent reschedule_appointment: phone=%s old=%s new=%s",
                     phone, existing["id"], new_booking["id"])
-        return whatsapp_client.reschedule_message(existing, new_booking)
+        return whatsapp_client.reschedule_message(existing, new_booking) + _admin_booking_caution(user, lang)
 
     # get_patient_facts/update_patient_context/request_sensor_reading and the
     # screening tools below never need a phone. Everything that messages or
@@ -685,9 +705,22 @@ def _build_tools(
         shared across patients, so the reading only counts as theirs if
         armed this way first; mention that in your reply (e.g. "go ahead and
         use the device now — it's shared, so I've reserved the next reading
-        for your account")."""
+        for your account"). If this returns saying the device is offline,
+        tell the patient plainly that the sensor isn't connected right now
+        and a new reading can't be taken until it is — don't imply it's
+        armed anyway."""
         if not user:
             return "No account is linked to this phone number — they need to register first."
+        # Bug fix (2026-08-23, Hassan's report): this used to arm the device
+        # unconditionally even when it was offline, so the patient was told
+        # "go ahead and use the device" for hardware that wasn't actually
+        # there. Admin/demo account is explicitly exempt — it's meant to
+        # work with no real sensor connected at all.
+        if not demo_account.is_admin_account(user["id"]) and not device_state()["online"]:
+            return (
+                "The shared NOVERA sensor device is currently offline (no heartbeat), so it "
+                "can NOT be armed and no new reading can be taken right now."
+            )
         arm_device_for_user(user["id"])
         return "Device armed for this patient — their next capture on the shared sensor will be linked to their account."
 
@@ -1039,15 +1072,42 @@ def handle_inbound(from_number: str, text: str, lang: str = "en") -> str:
     admin_row = _try_admin_trigger(from_number, text)
     if admin_row:
         whatsapp_context.mark_inbound(admin_row["id"])
+        # Feature list rewritten (2026-08-23, Hassan's report) — used to be
+        # one vague sentence. Every bullet is a real tool actually offered to
+        # this session below (_build_tools with a registered user + phone +
+        # within_window=True + allow_screening default True) — keep this list
+        # in sync if a tool is added/removed from that path.
         reply = (
-            "Admin/demo mode is on for this number for the next 24h — you're testing as the "
-            "NOVERA demo account. Ask for your report, the PDF, your natural-recovery plan, what "
-            "your doctor has noted, or try booking; everything works even with no real reading on "
-            "file."
+            "🔑 Admin/demo mode is ON for this number for the next 24h — you're testing the full "
+            "NOVERA experience as the demo account, no real sensor reading needed. You can ask me to:\n\n"
+            "• Run the screening pipeline / generate a report from the latest (synthetic) reading\n"
+            "• Send the report as a PDF\n"
+            "• Send a spoken voice-note summary\n"
+            "• Send the natural-recovery / self-care plan\n"
+            "• Tell you what a doctor has noted (patient context memory)\n"
+            "• Check slot availability, book / cancel / reschedule an appointment\n"
+            "• Request a retest\n"
+            "• Arm the shared sensor for a next capture\n\n"
+            "⚠️ Caution: any appointment you book here is a REAL booking placed in the clinic's real "
+            "system on the demo account — it is not simulated. In real (non-admin) operation, an "
+            "appointment is only ever booked automatically when a real NOVERA Product sensor reading "
+            "actually flags a concern — not on request like this. If you book one here just to test the "
+            "flow, remember to cancel it afterward so it doesn't sit as a real slot."
             if lang != "ar" else
-            "تم تفعيل وضع الإدارة/التجربة لهذا الرقم لمدة 24 ساعة — أنت الآن تختبر حساب نوفيرا "
-            "التجريبي. اطلب تقريرك، ملف PDF، خطة التعافي الطبيعي، ما سجّله الطبيب، أو جرّب الحجز؛ "
-            "كل شيء يعمل حتى بدون قراءة حقيقية."
+            "🔑 تم تفعيل وضع الإدارة/التجربة لهذا الرقم لمدة 24 ساعة — أنت تختبر تجربة نوفيرا الكاملة "
+            "كحساب تجريبي، دون الحاجة لقراءة حقيقية من المستشعر. يمكنك أن تطلب مني:\n\n"
+            "• تشغيل مسار الفحص / إنشاء تقرير من آخر قراءة (تجريبية)\n"
+            "• إرسال التقرير كملف PDF\n"
+            "• إرسال ملخص صوتي منطوق\n"
+            "• إرسال خطة التعافي الطبيعي / العناية الذاتية\n"
+            "• إخبارك بما سجّله الطبيب (ذاكرة سياق المريض)\n"
+            "• التحقق من توفر المواعيد، أو حجز/إلغاء/إعادة جدولة موعد\n"
+            "• طلب إعادة الفحص\n"
+            "• تجهيز المستشعر المشترك لقراءة قادمة\n\n"
+            "⚠️ تنبيه: أي موعد تحجزه هنا هو حجز حقيقي فعلاً في نظام العيادة الحقيقي على الحساب التجريبي "
+            "— وليس محاكاة. في التشغيل الفعلي (غير الإداري)، لا يُحجز الموعد تلقائيًا إلا عندما ترصد "
+            "قراءة حقيقية من منتج نوفيرا مشكلة فعلية — وليس بمجرد الطلب كما هنا. إذا حجزت موعدًا هنا "
+            "لتجربة المسار فقط، تذكّر إلغاءه لاحقًا حتى لا يبقى كموعد حقيقي."
         )
         result = whatsapp_client.send_message(reply, to=from_number)
         if result.get("delivered"):

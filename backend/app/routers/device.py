@@ -17,16 +17,15 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from .. import db
-from ..core.device_control import arm_device_for_user
+from ..core import demo_account
+from ..core.device_control import arm_device_for_user, device_state
 from ..deps import require_user
 from ..schemas import DevicePingIn
 
 router = APIRouter()
-
-ONLINE_WINDOW_SECONDS = 15
 
 
 @router.post("/device/ping")
@@ -45,16 +44,18 @@ def ping(body: DevicePingIn):
 
 @router.get("/device/status")
 def status(user: dict = Depends(require_user)):
-    row = db.fetch_one("SELECT ssid, last_seen FROM device_state WHERE id = 1")
-    last_seen = row["last_seen"] if row else None
-    online = bool(
-        last_seen
-        and (datetime.now(timezone.utc) - last_seen).total_seconds() < ONLINE_WINDOW_SECONDS
-    )
-    return {"ssid": (row["ssid"] if row else None) if online else None, "online": online}
+    return device_state()
 
 
 @router.post("/device/request-sample", status_code=202)
 def request_sample(user: dict = Depends(require_user)):
+    # Bug fix (2026-08-23, Hassan's report): this used to arm the device
+    # unconditionally even when it was offline — the request just sat
+    # pending with no feedback until the frontend's 30s poll timed out with
+    # a generic "no response" message. Now fails fast and honestly, except
+    # for the admin/demo account, which is explicitly meant to work with no
+    # real sensor connected at all (see core/demo_account.py).
+    if not demo_account.is_admin_account(user["id"]) and not device_state()["online"]:
+        raise HTTPException(status_code=409, detail="device_offline")
     arm_device_for_user(user["id"])
     return {"requested": True}

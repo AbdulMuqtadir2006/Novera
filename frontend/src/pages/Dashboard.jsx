@@ -155,6 +155,10 @@ export default function Dashboard() {
   const [days, setDays] = useState(30);
   const [adding, setAdding] = useState(false);
   const [sampleError, setSampleError] = useState(false);
+  // Distinct from the generic timeout message below — set immediately from
+  // requestSample()'s 409 (device offline, see routers/device.py), not
+  // discovered only after a 30s poll times out (2026-08-23, Hassan's report).
+  const [deviceOffline, setDeviceOffline] = useState(false);
   const { reading, loading } = useLatestReading(refresh);
   // Bug fix (2026-08-22): "All" (days=9999) was requesting the same 30 days
   // as the 30-day option — silently identical charts. Backend caps at 365
@@ -183,6 +187,7 @@ export default function Dashboard() {
   const handleAdd = async () => {
     setAdding(true);
     setSampleError(false);
+    setDeviceOffline(false);
     try {
       const before = reading?.timestamp ?? null;
       // No catch around this before now — a failure here (expired session,
@@ -194,7 +199,11 @@ export default function Dashboard() {
         await requestSample();
       } catch (e) {
         console.error("requestSample failed:", e);
-        setSampleError(true);
+        if (e.status === 409) {
+          setDeviceOffline(true);
+        } else {
+          setSampleError(true);
+        }
         return;
       }
 
@@ -234,6 +243,7 @@ export default function Dashboard() {
               {adding ? t("dash.adding") : t("dash.addReading")}
             </button>
           </div>
+          {deviceOffline && <p className="text-xs font-medium text-red-500">{t("dash.deviceOffline")}</p>}
           {sampleError && <p className="text-xs font-medium text-red-500">{t("dash.sampleTimeout")}</p>}
         </div>
       </header>
