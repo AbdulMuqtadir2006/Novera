@@ -360,6 +360,8 @@ def _greeting_reply(user: Optional[dict[str, Any]], lang: str) -> str:
         "• Book, cancel, or reschedule an appointment\n"
         "• Request a retest\n"
         "• Arm the sensor for your next reading\n\n"
+        "⚠️ Note: booking, cancelling, or rescheduling here creates/changes a REAL appointment at "
+        "the clinic — it's not a preview or a draft.\n\n"
         "Just tell me what you'd like."
         if lang != "ar" else
         f"👋 مرحباً{name_bit_ar}! أنا وكيل واتساب نوفيرا. راسلني في أي وقت من أجل:\n\n"
@@ -370,6 +372,8 @@ def _greeting_reply(user: Optional[dict[str, Any]], lang: str) -> str:
         "• حجز أو إلغاء أو إعادة جدولة موعد\n"
         "• طلب إعادة الفحص\n"
         "• تجهيز المستشعر لقراءتك القادمة\n\n"
+        "⚠️ ملاحظة: الحجز أو الإلغاء أو إعادة الجدولة هنا ينشئ أو يغيّر موعدًا حقيقيًا في العيادة — "
+        "وليس معاينة أو مسودة.\n\n"
         "فقط أخبرني بما تريد."
     )
 
