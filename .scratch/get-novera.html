@@ -1,0 +1,295 @@
+<title>Get Novera</title>
+<style>
+  :root {
+    --ink: #080919;
+    --ink-raised: #10122a;
+    --signal: #28cfe0;
+    --vital: #ec61e8;
+    --iris: #b24bd6;
+    --text: #cdc9e6;
+    --text-dim: #8a84ad;
+    --border: rgba(205, 201, 230, 0.14);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    background: var(--ink);
+    background-image:
+      radial-gradient(600px 400px at 15% -10%, rgba(178, 75, 214, 0.18), transparent 60%),
+      radial-gradient(700px 500px at 110% 10%, rgba(40, 207, 224, 0.14), transparent 60%);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    min-height: 100dvh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 48px 20px;
+  }
+
+  .card {
+    width: 100%;
+    max-width: 420px;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+  }
+
+  .wordmark {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    justify-content: center;
+  }
+
+  .wordmark-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, var(--signal), var(--vital));
+    box-shadow: 0 0 14px rgba(40, 207, 224, 0.6);
+  }
+
+  .wordmark-text {
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #f2f0fb;
+  }
+
+  h1 {
+    text-align: center;
+    font-size: clamp(26px, 6vw, 32px);
+    line-height: 1.15;
+    font-weight: 750;
+    letter-spacing: -0.01em;
+    color: #f5f3fc;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .sub {
+    text-align: center;
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--text-dim);
+    margin: -14px 0 0;
+    max-width: 34ch;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .qr-frame {
+    position: relative;
+    align-self: center;
+    padding: 18px;
+    border-radius: 20px;
+    background: var(--ink-raised);
+    border: 1px solid var(--border);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.02) inset, 0 24px 60px -24px rgba(178, 75, 214, 0.35);
+  }
+
+  .qr-frame img {
+    display: block;
+    width: 220px;
+    height: 220px;
+    border-radius: 10px;
+  }
+
+  .qr-caption {
+    text-align: center;
+    font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--signal);
+  }
+
+  .steps {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 22px;
+    border-radius: 16px;
+    background: var(--ink-raised);
+    border: 1px solid var(--border);
+  }
+
+  .steps-title {
+    font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin: 0 0 14px;
+  }
+
+  .step {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    padding: 11px 0;
+  }
+
+  .step + .step {
+    border-top: 1px solid var(--border);
+  }
+
+  .step-num {
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink);
+    background: linear-gradient(135deg, var(--signal), var(--vital));
+  }
+
+  .step-text {
+    font-size: 14.5px;
+    line-height: 1.5;
+    color: var(--text);
+    padding-top: 2px;
+  }
+
+  .step-text b {
+    color: #f2f0fb;
+    font-weight: 600;
+  }
+
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--text-dim);
+    font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .divider::before,
+  .divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .android-box {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 18px 20px;
+    border-radius: 16px;
+    background: var(--ink-raised);
+    border: 1px solid var(--border);
+  }
+
+  .android-box p {
+    margin: 0;
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--text-dim);
+  }
+
+  .android-box a {
+    color: var(--signal);
+    text-decoration: none;
+    font-weight: 600;
+  }
+
+  .android-box a:hover,
+  .android-box a:focus-visible {
+    text-decoration: underline;
+  }
+
+  .link-line {
+    text-align: center;
+    font-size: 12.5px;
+    color: var(--text-dim);
+  }
+
+  .link-line a {
+    color: var(--text);
+    text-decoration: none;
+    border-bottom: 1px dashed var(--border);
+  }
+
+  .link-line a:hover,
+  .link-line a:focus-visible {
+    color: var(--signal);
+    border-bottom-color: var(--signal);
+  }
+
+  a:focus-visible, button:focus-visible {
+    outline: 2px solid var(--signal);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .qr-frame { animation: rise 0.6s cubic-bezier(0.16, 1, 0.3, 1) both; }
+    .steps { animation: rise 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.08s both; }
+    .android-box { animation: rise 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.16s both; }
+  }
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+</style>
+
+<div class="wrap">
+  <div class="card">
+    <div class="wordmark">
+      <span class="wordmark-dot"></span>
+      <span class="wordmark-text">Novera</span>
+    </div>
+
+    <h1>Get Novera on your phone</h1>
+    <p class="sub">Scan with your iPhone camera, then add it to your Home Screen — free, no App Store needed.</p>
+
+    <div class="qr-frame">
+      <img src="data:image/png;base64,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" alt="QR code linking to www.novera.fun" width="220" height="220" />
+    </div>
+    <p class="qr-caption">www.novera.fun</p>
+
+    <div class="steps">
+      <p class="steps-title">iPhone — 3 steps</p>
+      <div class="step">
+        <span class="step-num">1</span>
+        <span class="step-text">Open your <b>Camera</b> app and point it at the QR code above.</span>
+      </div>
+      <div class="step">
+        <span class="step-num">2</span>
+        <span class="step-text">Tap the banner to open the site in <b>Safari</b>.</span>
+      </div>
+      <div class="step">
+        <span class="step-num">3</span>
+        <span class="step-text">Tap the <b>Share</b> icon, then <b>Add to Home Screen</b>.</span>
+      </div>
+    </div>
+
+    <div class="divider">Android</div>
+
+    <div class="android-box">
+      <p>Android gets a real installable <b>.apk</b> instead — download it from the repo's Releases page, or scan the same QR code above to install the web app the same way (tap <b>Install app</b> when Chrome offers it).</p>
+      <p><a href="https://github.com/AbdulMuqtadir2006/Novera/releases/tag/latest-android-build" target="_blank" rel="noopener">Download the Android APK →</a></p>
+    </div>
+
+    <p class="link-line">Or open directly: <a href="https://www.novera.fun" target="_blank" rel="noopener">www.novera.fun</a></p>
+  </div>
+</div>
