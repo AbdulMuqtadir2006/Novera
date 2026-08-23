@@ -1,6 +1,6 @@
 # AI Context — Novera
 
-Last updated: 2026-08-20. Read this first in any new session before touching the code — it captures
+Last updated: 2026-08-23. Read this first in any new session before touching the code — it captures
 what's actually built, deployed, and working right now, plus the non-obvious gotchas that cost real
 debugging time to find.
 
@@ -76,19 +76,16 @@ push touching `frontend/**`. No manual deploy step exists or is needed.
 - **Not classic Cloudflare Pages** — deployed as a **Worker with static assets** (`npx wrangler
   deploy`, triggered by Cloudflare's Git integration on every push to `main`). This distinction
   matters: config lives in `frontend/wrangler.jsonc`, not a Pages-specific dashboard setting.
-- Live at `https://www.echo-nova.online` and `https://echo-nova.online` (both attached as Custom
-  Domains on the Worker) and `https://novera.mohd-abdulmuqtadir2006.workers.dev` (the free
-  `*.workers.dev` URL, always active regardless of custom domains).
-- DNS: `echo-nova.online` was originally on IONOS, nameservers now point to Cloudflare
-  (`rob.ns.cloudflare.com` / `harleigh.ns.cloudflare.com`) — confirmed propagated. Old IONOS-era A
-  records (pointing at a former Vercel deployment, IP `216.198.79.1`) had to be deleted from
-  Cloudflare's own DNS records (they'd been auto-imported on initial domain add) before the Custom
-  Domain feature would attach `www` and the apex.
+- Live at `https://www.novera.fun` and `https://novera.fun` (both attached as Custom Domains on the
+  Worker) and `https://novera.mohd-abdulmuqtadir2006.workers.dev` (the free `*.workers.dev` URL,
+  always active regardless of custom domains). See the 2026-08-23 domain migration entry below —
+  `echo-nova.online` is retired, no longer live at all.
 
 ### Backend — Railway
 
-- FastAPI + Postgres, live at `https://api.echo-nova.online` (custom domain on Railway). Health
-  endpoint `/api/health` confirmed returning `{"ok": true, "db_ok": true, ...}`.
+- FastAPI + Postgres, live at `https://api.novera.fun` (custom domain on Railway, one-domain-per-
+  service plan limit — see the migration entry below for why the old `api.echo-nova.online` had to
+  be removed first). Health endpoint `/api/health` confirmed returning `{"ok": true, "db_ok": true, ...}`.
 - `scripts/init_db.py` runs as a Railway pre-deploy step (schema + seed data).
 
 ### AI models (OpenRouter) — split by stakes
@@ -109,7 +106,7 @@ per call:
   project, source only — `android/app/build/` and `android/.gradle/` stay gitignored).
 - **Built entirely by CI, no local Android Studio/SDK needed anywhere**:
   `.github/workflows/android-build.yml` builds the web app (`VITE_API_URL` pinned to
-  `https://api.echo-nova.online`), runs `npx cap sync android`, builds a **debug** APK via Gradle,
+  `https://api.novera.fun`), runs `npx cap sync android`, builds a **debug** APK via Gradle,
   uploads it as a run artifact, and publishes it to the repo's standing `latest-android-build`
   GitHub Release.
 - App icons/splash generated from `frontend/public/logo-mark.png` on the brand's ink background
@@ -174,9 +171,12 @@ per call:
 ### "Get Novera" QR page
 
 Published as a Claude Artifact (private by default, share manually if needed) — the QR code encodes
-`https://www.echo-nova.online` directly, so it works independent of the artifact's own sharing
-state. Source: `.scratch/get-novera.html` (not committed to git — recreate from scratch if needed,
-it's a standalone static page).
+the site URL directly, so it works independent of the artifact's own sharing state. Source:
+`.scratch/get-novera.html` (not committed to git — recreate from scratch if needed, it's a
+standalone static page). **Stale as of the 2026-08-23 domain migration**: the visible caption/link
+text was updated to `www.novera.fun`, but the embedded QR code is a baked PNG that still visually
+encodes the old, now-dead `www.echo-nova.online` URL — regenerate the actual QR image (not just the
+text) before sharing this page again.
 
 ### Autonomous Guidance Agent + live homepage workflow diagram (added 2026-08-14)
 
@@ -327,6 +327,67 @@ since 1986 — see `catalog.py`'s docstring for the source), rounded to whole ba
   also treat `/buy` and `/order/:token` as dark-ink pages (they're storefront/marketing pages, not the
   logged-in app's light theme).
 
+### Admin/demo account + WhatsApp trigger (added 2026-08-23)
+
+`config.ADMIN_EMAIL` names a real account (`admin@novera.fun`, created via the live signup API —
+`scripts/create_admin_account.py` exists too but SSH into the Railway container hit a persistent
+host-key-verification failure from this machine, never resolved) that `core/demo_account.py` keeps
+auto-seeded with a synthetic biomarker reading whenever it has none — hooked into
+`reference_data.get_latest_row`/`get_reading_history`, the two shared choke points every feature
+(dashboard, reports, self-care, voice, screening, WhatsApp) already goes through, so no per-endpoint
+changes were needed. Every other account is completely unaffected; the seed only ever fires for this
+one configured email and costs nothing when `ADMIN_EMAIL` is unset.
+
+`config.ADMIN_WA_TRIGGER_PHRASE` (currently `"admin login: madaar"`) — sent as the entire text of an
+inbound WhatsApp message from ANY phone number, resolves that conversation to the admin account for
+24h (in-process only, not persisted across restarts — same accepted-limitation pattern as this file's
+other in-memory throttles). A real bearer-secret backdoor by deliberate design (works from any device
+for demos); see `whatsapp_agent.py`'s `_try_admin_trigger`/`_admin_session_active`. Verified live: a
+correctly-HMAC-signed test webhook payload with that exact phrase produced
+`whatsapp_agent: admin trigger recognized` in Railway's logs.
+
+New WhatsApp tool in the same pass: `send_self_care_plan` — WhatsApp previously had no way to deliver
+the natural-recovery/self-care plan (diet + area tips) the website's Natural Recovery page already
+shows; only report/voice were wired up. Generates-or-reuses the persisted plan, available to any
+registered patient with a phone, not just the admin account.
+
+### Domain migration: echo-nova.online → novera.fun (2026-08-23)
+
+`novera.fun` was bought and is now the **only** live domain — `echo-nova.online` is fully retired,
+not kept as a working alias. What actually moved, in order:
+
+1. **Cloudflare**: `novera.fun`'s nameservers were already pointed at Cloudflare (same account) but
+   attached to a *different*, unrelated Worker (`pulseai`, an old separate project of Hassan's called
+   PulseGuard AI) — had to be detached from there first, then attached to the `novera` Worker as
+   Custom Domains (`novera.fun` + `www.novera.fun`).
+2. **Railway**: the plan allows exactly 1 custom domain per service, and `api.echo-nova.online` was
+   already using that slot — had to be deleted before `api.novera.fun` could be added. This produced
+   a real (~few minutes) API-down window on the old domain, accepted deliberately by Hassan.
+   `api.novera.fun` DNS: a CNAME (`api` → the Railway-provided target) + a `_railway-verify.api` TXT
+   record, both added to the `novera.fun` zone, `DNS only` (not proxied) per Railway's requirement for
+   its own cert issuance.
+3. **Frontend build var**: `VITE_API_URL` (a Cloudflare Worker *build-time* variable — Settings →
+   Build → Variables, not a runtime Worker var, since a static-assets Worker can't have those) updated
+   to `https://api.novera.fun` and a fresh build manually triggered so the live bundle actually picked
+   it up (a plain env-var save does **not** by itself rebuild/redeploy anything).
+4. **CORS**: `CORS_ORIGINS` on Railway never had `novera.fun` added when the domain first went live —
+   caused a real, user-reported "blocked by CORS policy" login failure. Fixed by updating the env var
+   and redeploying; verified via a real preflight (`OPTIONS`) request afterward, not just assumed.
+5. **Backend code defaults** (`config.py`'s `SIGNUP_URL`/`PUBLIC_SITE_URL`/`PUBLIC_API_URL`/
+   `CORS_ORIGINS` fallback) updated to `novera.fun` — these matter for real, since none of the
+   corresponding env vars were ever explicitly set on Railway; the code defaults *are* what's live.
+6. **Meta WhatsApp webhook**: callback URL updated to `https://api.novera.fun/webhook` in Meta's own
+   dashboard (a manual step outside this codebase — Claude can't log into Meta/Facebook). Verified via
+   a real `GET /webhook` 200 in Railway's logs at the moment it was saved.
+7. **Physical ESP32 hardware**: `hardware/esp32_sensor/esp32_sensor.ino`'s `API_URL`/`PING_URL` were
+   hardcoded to `api.echo-nova.online` — went dead the moment step 2 happened, since editing the
+   `.ino` source doesn't affect what's already flashed onto the physical device. Source updated to
+   `api.novera.fun`; **still needs a real re-flash of the physical device** (Hassan's own action,
+   outside anything Claude can do remotely) before the sensor can submit readings again.
+8. **`.scratch/get-novera.html`** (untracked, not part of git): caption/link text updated to
+   `www.novera.fun`, but the embedded QR code is a baked PNG still visually encoding the old, now-dead
+   URL — the image itself needs regenerating, not just the text, before this page is shared again.
+
 ## Key files / architecture
 
 - `backend/app/main.py` — FastAPI entry; routers in `backend/app/routers/`.
@@ -441,9 +502,6 @@ since 1986 — see `catalog.py`'s docstring for the source), rounded to whole ba
   path instead, per explicit cost tradeoff discussion.
 - **No automated tests** anywhere (backend or frontend). CI currently only builds the Android APK,
   doesn't run any test suite.
-- **`echo-nova.online` (bare apex) custom domain** — was being attached in parallel with `www`;
-  verify it's still resolving correctly in a fresh check before assuming it's stable, since this was
-  mid-troubleshooting when last touched.
 - **Thawani not actually live yet** — `/buy` checkout is real, working code (see "Store" section
   above) but `THAWANI_SECRET_KEY`/`THAWANI_PUBLISHABLE_KEY` aren't set anywhere yet, so checkout
   currently 503s honestly rather than charging anyone. Needs real Thawani merchant credentials

@@ -78,12 +78,12 @@ python scripts/screening_cli.py list --limit 10
    ```bash
    python scripts/init_db.py
    ```
-6. Point a custom domain at the service: `api.echo-nova.online`.
+6. Point a custom domain at the service: `api.novera.fun`.
 
 ## Deploying the frontend (Cloudflare Pages)
 
-See [`../frontend/README.md`](../frontend/README.md). Set `VITE_API_URL=https://api.echo-nova.online`
-in the Cloudflare Pages project's environment variables, and point `www.echo-nova.online` at it.
+See [`../frontend/README.md`](../frontend/README.md). Set `VITE_API_URL=https://api.novera.fun`
+in the Cloudflare Pages project's environment variables, and point `www.novera.fun` at it.
 
 ## Going live on WhatsApp (Meta Cloud API)
 
@@ -91,7 +91,7 @@ in the Cloudflare Pages project's environment variables, and point `www.echo-nov
    **access token** and **Phone Number ID** from *API Setup*.
 2. Set `META_WHATSAPP_TOKEN`, `META_PHONE_NUMBER_ID`, `META_VERIFY_TOKEN`, and `WHATSAPP_TO` in the
    Railway service's env vars.
-3. In **WhatsApp → Configuration → Webhook**: Callback URL `https://api.echo-nova.online/webhook`,
+3. In **WhatsApp → Configuration → Webhook**: Callback URL `https://api.novera.fun/webhook`,
    Verify token = your `META_VERIFY_TOKEN`. Click *Verify and Save*, then subscribe to `messages`.
 4. Inbound messages are handled by `core/whatsapp_agent.py`'s tool-calling agent — the model
    decides which tools to call (`get_patient_facts`, `check_slot_availability`,

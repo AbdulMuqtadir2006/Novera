@@ -53,11 +53,11 @@ NEXT_DAY_MORNING_HOUR = 8
 
 # ---- website (patient-facing signup, linked from the WhatsApp Agent when
 # an unregistered number texts in) ----
-SIGNUP_URL = os.getenv("SIGNUP_URL", "https://www.echo-nova.online/signup").strip()
+SIGNUP_URL = os.getenv("SIGNUP_URL", "https://www.novera.fun/signup").strip()
 
 # ---- public URLs (for building redirect targets outside the request) ----
-PUBLIC_SITE_URL = os.getenv("PUBLIC_SITE_URL", "https://www.echo-nova.online").strip()
-PUBLIC_API_URL = os.getenv("PUBLIC_API_URL", "https://api.echo-nova.online").strip()
+PUBLIC_SITE_URL = os.getenv("PUBLIC_SITE_URL", "https://www.novera.fun").strip()
+PUBLIC_API_URL = os.getenv("PUBLIC_API_URL", "https://api.novera.fun").strip()
 
 # ---- Thawani (Oman payment gateway) — device/strip-bundle checkout ----
 # No live merchant credentials exist yet — checkout stays honestly disabled
@@ -75,7 +75,7 @@ CORS_ORIGINS = [
     origin.strip()
     for origin in os.getenv(
         "CORS_ORIGINS",
-        "https://www.echo-nova.online,https://echo-nova.online,"
+        "https://www.novera.fun,https://novera.fun,"
         "http://localhost:5173,http://127.0.0.1:5173,"
         # Capacitor's Android WebView serves the bundled app from this
         # virtual origin by default (server.androidScheme, unset = https).

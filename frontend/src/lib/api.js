@@ -1,5 +1,5 @@
 // API layer — talks to the Novera FastAPI backend (Postgres + OpenRouter).
-// VITE_API_URL points at the deployed backend (e.g. https://api.echo-nova.online);
+// VITE_API_URL points at the deployed backend (e.g. https://api.novera.fun);
 // unset in dev, requests fall back to Vite's proxy (see vite.config.js).
 
 const API_BASE = import.meta.env.VITE_API_URL || "";

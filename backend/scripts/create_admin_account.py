@@ -10,7 +10,7 @@ given) instead of failing.
 
 Usage (from backend/, against whichever DATABASE_URL is in your environment
 — e.g. run once via `railway run` against the production database):
-    python scripts/create_admin_account.py --email admin@echo-nova.online --phone +9680000001
+    python scripts/create_admin_account.py --email admin@novera.fun --phone +9680000001
 
 Omit --password to be prompted for it interactively (keeps it out of shell
 history). After running, set ADMIN_EMAIL to the same email in the backend's

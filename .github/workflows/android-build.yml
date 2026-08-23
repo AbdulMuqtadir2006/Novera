@@ -41,7 +41,7 @@ jobs:
       - name: Build web app
         run: npm run build
         env:
-          VITE_API_URL: https://api.echo-nova.online
+          VITE_API_URL: https://api.novera.fun
 
       - name: Sync Capacitor Android project
         run: npx cap sync android

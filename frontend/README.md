@@ -16,8 +16,8 @@ FastAPI backend (Railway, Postgres)
    └── Meta WhatsApp Cloud API (appointment booking + Q&A)
 ```
 
-Deploys to **Cloudflare Pages** at `www.echo-nova.online`. The backend deploys separately to
-**Railway** at `api.echo-nova.online` — see [`../backend/README.md`](../backend/README.md).
+Deploys to **Cloudflare Pages** at `www.novera.fun`. The backend deploys separately to
+**Railway** at `api.novera.fun` — see [`../backend/README.md`](../backend/README.md).
 
 - **Stack:** React 18, Vite, Tailwind, Framer Motion, GSAP (frame-scrub hero), Recharts,
   lucide-react, jsPDF + html2canvas (bilingual PDF), Web Speech API.
@@ -41,8 +41,8 @@ data — see that folder's README for setup.
 
 1. Cloudflare dashboard → **Workers & Pages** → **Create** → **Pages** → **Connect to Git**, pick this repo.
 2. Build settings: root directory `frontend/`, build command `npm run build`, build output directory `dist`.
-3. Add env var `VITE_API_URL=https://api.echo-nova.online` under the project's **Settings → Environment variables**.
-4. **Custom domains** tab → add `www.echo-nova.online` (and `echo-nova.online` with a redirect, if desired). If the domain's nameservers are already on Cloudflare, this activates instantly; otherwise Cloudflare gives you the CNAME/records to add at your registrar.
+3. Add env var `VITE_API_URL=https://api.novera.fun` under the project's **Settings → Environment variables**.
+4. **Custom domains** tab → add `www.novera.fun` (and `novera.fun` with a redirect, if desired). If the domain's nameservers are already on Cloudflare, this activates instantly; otherwise Cloudflare gives you the CNAME/records to add at your registrar.
 5. Cloudflare's current Git integration deploys this as a **Worker with static assets** (via `npx wrangler deploy`), not classic Pages — `wrangler.jsonc` in this folder configures that: `assets.directory: "./dist"` plus `not_found_handling: "single-page-application"` so client-side routing (React Router) works on refresh/deep links. Without `wrangler.jsonc`, Wrangler tries to auto-configure via its Vite plugin, which requires Vite 6+ — this repo pins Vite 5, so the config file avoids that path entirely. **Don't add a `public/_redirects` file** — it conflicts with `not_found_handling` and Cloudflare rejects the deploy with an "infinite loop" error on the `/index.html` rule.
 
 ## Features

@@ -82,13 +82,13 @@
 
 // ---- WiFi networks — fill in / adjust as needed ----
 WiFiMulti wifiMulti;
-const char *WIFI_SSID_1 = "Zuhaib";
+const char *WIFI_SSID_1 = "Novera Product 1";
 const char *WIFI_PASSWORD_1 = "zuhaib2006";
 const char *WIFI_SSID_2 = "king hamza";
 const char *WIFI_PASSWORD_2 = "12345678";
 
-const char *API_URL = "https://api.echo-nova.online/api/readings";
-const char *PING_URL = "https://api.echo-nova.online/api/device/ping";
+const char *API_URL = "https://api.novera.fun/api/readings";
+const char *PING_URL = "https://api.novera.fun/api/device/ping";
 
 // How often to run a full test cycle on its own, with no request from the
 // dashboard (assumes a strip is available to insert when it fires).
@@ -351,7 +351,7 @@ bool runFullTest() {
 
   if (as7341Ok) {
     as7341.setLEDCurrent(LED_CURRENT_MA);
-
+    delay(1000);
     // --- Window 1: Creatinine (top pad) ---
     as7341.enableLED(true);
     digitalWrite(READY_LED_PIN, HIGH);
