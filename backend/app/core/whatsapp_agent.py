@@ -1042,7 +1042,12 @@ def handle_inbound(from_number: str, text: str, lang: str = "en") -> str:
         result = whatsapp_client.send_message(reply, to=from_number)
         if result.get("delivered"):
             whatsapp_context.mark_outbound(admin_row["id"])
-        return reply
+        # Bug fix (2026-08-23): this branch already sent `reply` directly above
+        # — same self-send pattern as _SELF_SENDING_TOOL_NAMES, but this path
+        # never goes through _run_agent_loop, so that fix didn't cover it.
+        # Returning `reply` here made the caller (routers/whatsapp.py's
+        # _process_and_reply) send it again, producing the reported duplicate.
+        return ""
 
     user = _admin_session_user() if _admin_session_active(phone) else _find_user_by_phone(from_number)
 
