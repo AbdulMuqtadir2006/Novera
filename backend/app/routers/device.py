@@ -45,11 +45,15 @@ def ping(body: DevicePingIn):
     # patient_name (2026-08-24): only meaningful alongside pending=true — a
     # periodic un-requested capture cycle has no pending_sample_user_id, so
     # the firmware correctly has no name to show for that case either.
+    # First name only (2026-08-25, Hassan's call) — the small TFT only has
+    # room for a short name; shared by both the WhatsApp arm flow and the
+    # dashboard's "Take New Sample" button, since both call the same
+    # arm_device_for_user() and land here through the same ping().
     patient_name = None
     if pending and row["pending_sample_user_id"]:
         user_row = db.fetch_one("SELECT name FROM users WHERE id = %s", (row["pending_sample_user_id"],))
         if user_row and user_row["name"]:
-            patient_name = user_row["name"]
+            patient_name = user_row["name"].strip().split(" ")[0]
     return {"pending_sample": pending, "patient_name": patient_name}
 
 
