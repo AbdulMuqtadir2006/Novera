@@ -162,6 +162,20 @@ DHT dht(DHTPIN, DHTTYPE);
 Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_RST);
 #define TFT_THANK_YOU_MS 4000UL // how long "Thank you, <name>" stays up before returning to idle
 
+// ---- Buzzer (added 2026-08-25) — either leg of a bare 2-pin piezo, or the
+// I/O pin of a 3-pin buzzer module (VCC->3V3, GND->GND, I/O->this pin).
+// Beeps once when an on-demand (dashboard/WhatsApp-requested) test finishes
+// — see buzzTestComplete() (defined further down, after AS7341_CHANNEL_
+// COUNT below — a function defined THIS early in the file shifts where
+// Arduino's auto-generated prototypes land, which broke every later
+// function using AS7341_CHANNEL_COUNT in its own signature; found by
+// actually hitting that build error) and its call site in loop().
+// Deliberately does NOT beep for the periodic un-requested auto-cycle, same
+// scoping as the TFT testing/thank-you screens.
+#define BUZZER_PIN 14
+#define BUZZER_FREQ_HZ 2000
+#define BUZZER_DURATION_MS 200
+
 // ---- AS7341 ----
 Adafruit_AS7341 as7341;
 const int AS7341_CHANNEL_COUNT = 10; // F1..F8, Clear, NIR
@@ -294,6 +308,7 @@ void showThankYouScreen(const char *name) {
   if (name && name[0]) {
     tftCenterText(name, 140, 3, ILI9341_WHITE);
   }
+  tftCenterText("This is a Research Based Screening Device", 190, 1, ILI9341_WHITE);
 }
 
 // ---- Boot sequence (2026-08-25): blink white x2, "NOVERA / Starting...",
@@ -359,6 +374,10 @@ void signalRequestReceived() {
     digitalWrite(READY_LED_PIN, HIGH);
     delay(REQUEST_CUE_BLINK_MS);
   }
+}
+
+void buzzTestComplete() {
+  tone(BUZZER_PIN, BUZZER_FREQ_HZ, BUZZER_DURATION_MS);
 }
 
 void connectWiFi() {
@@ -660,6 +679,8 @@ void setup() {
   pinMode(READY_LED_PIN, OUTPUT);
   digitalWrite(READY_LED_PIN, LOW); // off until WiFi connects AND the AS7341 initializes
 
+  pinMode(BUZZER_PIN, OUTPUT);
+
   Wire.begin(21, 22); // SDA, SCL — matches the wiring notes above
   dht.begin();
   // AS7341 init is lazy (see ensureAS7341Ready() below) — it happens on the
@@ -699,6 +720,7 @@ void loop() {
       showTestingScreen(patientName);
       Serial.println("Starting test now.");
       sendReading();
+      buzzTestComplete();
       showThankYouScreen(patientName);
       delay(TFT_THANK_YOU_MS);
       showIdleScreen();
