@@ -36,7 +36,7 @@ with its current SSID. That heartbeat does two things:
   pin connected) — its onboard LED just lights up when powered. Not read,
   not sent anywhere.
 - **TFT display** (added 2026-08-24): a 240x320 SPI, ILI9341-compatible
-  screen (`VCC→3V3, GND→GND, CS→D5, RST→D16, DC→D17, SCK→D18, MOSI→D23,
+  screen (`VCC→3V3, GND→GND, CS→D5, RST→D26, DC→D27, SCK→D18, MOSI→D23,
   MISO→D19`). Patient-facing only: shows "NOVERA" idle, the patient's name
   while their dashboard/WhatsApp-requested test is running, then
   "Thank you, `<name>`" for 4s after the send completes, before returning to

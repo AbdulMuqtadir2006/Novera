@@ -63,7 +63,7 @@
  *   a capture cycle it instead tracks the two capture windows (on with the
  *   reagent LED for each 2.5s window, briefly off between them), then
  *   returns to steady-on afterward.
- *   TFT display: VCC->3V3  GND->GND  CS->D5  RST->D16  DC->D17
+ *   TFT display: VCC->3V3  GND->GND  CS->D5  RST->D26  DC->D27
  *   SCK->D18  MOSI->D23  MISO->D19 (VSPI's fixed hardware pins on this
  *   board — wired straight to the module, nothing to configure in code for
  *   them). LED/backlight: either straight to 3V3 if your module ties it
@@ -149,8 +149,8 @@ DHT dht(DHTPIN, DHTTYPE);
 // hardware pins (18/23/19) on this board, used automatically by the
 // Adafruit_ILI9341 default constructor — only CS/DC/RST need explicit pins.
 #define TFT_CS  5
-#define TFT_DC  17
-#define TFT_RST 16
+#define TFT_DC  27
+#define TFT_RST 26
 Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_RST);
 #define TFT_THANK_YOU_MS 4000UL // how long "Thank you, <name>" stays up before returning to idle
 
