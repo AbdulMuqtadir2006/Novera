@@ -35,6 +35,16 @@ with its current SSID. That heartbeat does two things:
 - **MQ gas sensor**: wired for power only (`VCC→VIN`, `GND→GND`, no signal
   pin connected) — its onboard LED just lights up when powered. Not read,
   not sent anywhere.
+- **TFT display** (added 2026-08-24): a 240x320 SPI, ILI9341-compatible
+  screen (`VCC→3V3, GND→GND, CS→D5, RST→D16, DC→D17, SCK→D18, MOSI→D23,
+  MISO→D19`). Patient-facing only: shows "NOVERA" idle, the patient's name
+  while their dashboard/WhatsApp-requested test is running, then
+  "Thank you, `<name>`" for 4s after the send completes, before returning to
+  idle. The periodic un-requested auto-cycle (`SEND_INTERVAL_MS`) has no
+  associated patient, so it doesn't touch the display at all. The patient
+  name itself comes from `/api/device/ping`'s new `patient_name` field (see
+  `backend/app/routers/device.py`) — required for this feature, not just a
+  firmware-side addition.
 
 **Calibration happens on the backend, not here.** This sketch's only job is
 capturing the two pads' raw AS7341 channels (F1–F8, Clear, NIR) as
@@ -76,7 +86,8 @@ until that's done.
 
 Libraries needed (Arduino Library Manager, in addition to the ESP32 board
 package): **"DHT sensor library"** by Adafruit (+ its "Adafruit Unified
-Sensor" dependency), and **"Adafruit AS7341"**.
+Sensor" dependency), **"Adafruit AS7341"**, and **"Adafruit ILI9341"**
+(+ its "Adafruit GFX Library" dependency).
 
 ## Flashing it
 

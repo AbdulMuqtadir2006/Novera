@@ -17,6 +17,13 @@
  *   the second pad position between the two capture windows.
  * - MQ gas sensor: wired for power only (no signal pin connected), purely
  *   so its onboard LED lights up. Not read, not sent anywhere.
+ * - TFT display (240x320 SPI, ILI9341-compatible, added 2026-08-24):
+ *   patient-facing status only — shows "NOVERA" idle, the patient's name
+ *   while their requested test is running (dashboard/WhatsApp arm flow
+ *   only — see WIRING below and showTestingScreen()), then "Thank you,
+ *   <name>" for a few seconds after the send completes. The periodic
+ *   un-requested auto-cycle (SEND_INTERVAL_MS) has no associated patient,
+ *   so it deliberately does NOT touch the display — see loop().
  *
  * CALIBRATION HAPPENS ON THE BACKEND, NOT HERE: this firmware's only job is
  * to capture the two pads' raw AS7341 channels (F1..F8, Clear, NIR) as
@@ -56,12 +63,28 @@
  *   a capture cycle it instead tracks the two capture windows (on with the
  *   reagent LED for each 2.5s window, briefly off between them), then
  *   returns to steady-on afterward.
+ *   TFT display: VCC->3V3  GND->GND  CS->D5  RST->D16  DC->D17
+ *   SCK->D18  MOSI->D23  MISO->D19 (VSPI's fixed hardware pins on this
+ *   board — wired straight to the module, nothing to configure in code for
+ *   them). LED/backlight: either straight to 3V3 if your module ties it
+ *   permanently on, or D27 if your module breaks out a separate backlight
+ *   pin (not switched by this firmware either way — always-on backlight).
+ *   VCC: most 240x320 ILI9341 breakout modules are 3.3V-logic (check yours
+ *   before assuming) — 3V3 is the safe default since the ESP32's own GPIOs
+ *   are 3.3V logic regardless of what the module accepts.
+ *   Current budget note: the AS7341 (+ its capture LED), DHT11, and this
+ *   display's backlight all share the same 3.3V rail as everything above —
+ *   fine for essentially every small SPI TFT's typical backlight draw, but
+ *   if you see brownout resets during a capture (WiFi TX is already the
+ *   single biggest current spike on this board), power the display from a
+ *   separate 3.3V source rather than assuming the onboard regulator alone.
  *
  * LIBRARIES NEEDED (Arduino Library Manager):
  *   - "DHT sensor library" by Adafruit (+ its dependency "Adafruit Unified Sensor")
  *   - "Adafruit AS7341" by Adafruit
- *   (WiFi.h / WiFiClientSecure.h / HTTPClient.h / Wire.h ship with the ESP32
- *   board package already.)
+ *   - "Adafruit ILI9341" by Adafruit (+ its dependency "Adafruit GFX Library")
+ *   (WiFi.h / WiFiClientSecure.h / HTTPClient.h / Wire.h / SPI.h ship with
+ *   the ESP32 board package already.)
  *
  * BEFORE FIRST UPLOAD — VERIFY THIS ONE THING:
  *   readAllChannels() below assumes the Adafruit_AS7341 library fills its
@@ -79,6 +102,9 @@
 #include <Wire.h>
 #include <DHT.h>
 #include <Adafruit_AS7341.h>
+#include <SPI.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_ILI9341.h>
 
 // ---- WiFi networks — fill in / adjust as needed ----
 WiFiMulti wifiMulti;
@@ -117,6 +143,16 @@ const unsigned long PING_INTERVAL_MS = 1UL * 1000UL;
 #define DHTPIN 4
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
+
+// ---- TFT display (240x320 SPI, ILI9341-compatible) — see header comment
+// for full wiring. SCK/MOSI/MISO aren't defined here: they're VSPI's fixed
+// hardware pins (18/23/19) on this board, used automatically by the
+// Adafruit_ILI9341 default constructor — only CS/DC/RST need explicit pins.
+#define TFT_CS  5
+#define TFT_DC  17
+#define TFT_RST 16
+Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_RST);
+#define TFT_THANK_YOU_MS 4000UL // how long "Thank you, <name>" stays up before returning to idle
 
 // ---- AS7341 ----
 Adafruit_AS7341 as7341;
@@ -200,6 +236,48 @@ bool ensureAS7341Ready() {
   }
   Serial.println("AS7341 not responding after retries — check wiring/power (SDA=D21, SCL=D22, VIN=3V3). Skipping color capture this cycle.");
   return false;
+}
+
+// ---- TFT screens (2026-08-24) — patient-facing status only, entirely
+// separate from the Serial-only diagnostic prints throughout this file.
+// Centered text is the only layout need here, so this is a small local
+// helper rather than pulling in a text-layout library for one function.
+void tftCenterText(const char *text, int y, uint8_t size, uint16_t color) {
+  tft.setTextSize(size);
+  tft.setTextColor(color, ILI9341_BLACK);
+  int16_t x1, y1;
+  uint16_t w, h;
+  tft.getTextBounds(text, 0, 0, &x1, &y1, &w, &h);
+  tft.setCursor((tft.width() - (int)w) / 2, y);
+  tft.print(text);
+}
+
+void showIdleScreen() {
+  tft.fillScreen(ILI9341_BLACK);
+  tftCenterText("NOVERA", 140, 4, ILI9341_CYAN);
+}
+
+// Shown while a dashboard/WhatsApp-requested capture is actually running —
+// `name` is whatever /device/ping's patient_name returned this cycle; the
+// periodic un-requested auto-cycle never calls this (see loop()), so it's
+// always non-empty here in practice, but this still degrades sanely to a
+// nameless "Testing..." if it's ever missing.
+void showTestingScreen(const char *name) {
+  tft.fillScreen(ILI9341_BLACK);
+  tftCenterText("Testing...", 90, 2, ILI9341_WHITE);
+  if (name && name[0]) {
+    tftCenterText(name, 150, 3, ILI9341_CYAN);
+  }
+}
+
+// Shown for TFT_THANK_YOU_MS right after that same capture's send completes,
+// then loop() returns the display to showIdleScreen().
+void showThankYouScreen(const char *name) {
+  tft.fillScreen(ILI9341_BLACK);
+  tftCenterText("Thank you", 110, 3, ILI9341_CYAN);
+  if (name && name[0]) {
+    tftCenterText(name, 160, 3, ILI9341_WHITE);
+  }
 }
 
 // Keeps the status LED in sync with the current WiFi state. Call after
@@ -473,7 +551,33 @@ void sendReading() {
   http.end();
 }
 
-bool checkPendingSample() {
+// Minimal manual extraction of a `"key":"value"` string field from a JSON
+// response body — same lightweight indexOf-based parsing already used below
+// for pending_sample, rather than pulling in ArduinoJson for one optional
+// field. Leaves out[0]='\0' (and returns false) if the key isn't present at
+// all — the un-requested auto-cycle's /device/ping response has no
+// patient_name field, which is the expected, non-error case for that path.
+bool extractJsonStringField(const String &json, const char *key, char *out, size_t outSize) {
+  out[0] = '\0';
+  String needle = "\"" + String(key) + "\":\"";
+  int start = json.indexOf(needle);
+  if (start == -1) return false;
+  start += needle.length();
+  int end = json.indexOf('"', start);
+  if (end == -1) return false;
+  size_t len = (size_t)(end - start);
+  if (len >= outSize) len = outSize - 1;
+  json.substring(start, start + len).toCharArray(out, len + 1);
+  return true;
+}
+
+// `nameOut` is filled with the armed patient's name when the backend's
+// /device/ping response includes one (a dashboard/WhatsApp arm request for
+// a specific patient — see routers/device.py's ping()) — left as an empty
+// string for the periodic un-requested auto-cycle, which has no associated
+// patient. `nameOutSize` must be > 0.
+bool checkPendingSample(char *nameOut, size_t nameOutSize) {
+  nameOut[0] = '\0';
   if (WiFi.status() != WL_CONNECTED) return false;
 
   WiFiClientSecure client;
@@ -491,6 +595,9 @@ bool checkPendingSample() {
   if (status > 0) {
     String resp = http.getString();
     pending = resp.indexOf("\"pending_sample\":true") != -1;
+    if (pending) {
+      extractJsonStringField(resp, "patient_name", nameOut, nameOutSize);
+    }
   }
   http.end();
   return pending;
@@ -517,6 +624,10 @@ void setup() {
   // here. Calling as7341.begin() here too would just be a second redundant
   // init on every boot for no benefit.
 
+  tft.begin();
+  tft.setRotation(0); // portrait, 240 wide x 320 tall — flip to 2 if your module is mounted upside down
+  showIdleScreen();
+
   WiFi.mode(WIFI_STA);
   wifiMulti.addAP(WIFI_SSID_1, WIFI_PASSWORD_1);
   wifiMulti.addAP(WIFI_SSID_2, WIFI_PASSWORD_2);
@@ -535,11 +646,16 @@ void loop() {
 
   if (millis() - lastPingAt >= PING_INTERVAL_MS) {
     lastPingAt = millis();
-    if (checkPendingSample()) {
+    char patientName[32];
+    if (checkPendingSample(patientName, sizeof(patientName))) {
       Serial.println("Sample requested (dashboard or WhatsApp) -- get ready...");
       signalRequestReceived();
+      showTestingScreen(patientName);
       Serial.println("Starting test now.");
       sendReading();
+      showThankYouScreen(patientName);
+      delay(TFT_THANK_YOU_MS);
+      showIdleScreen();
       lastSendAt = millis();
     }
   }

@@ -3,8 +3,10 @@
 The ESP32 can only make outbound requests, so it can't be pushed to directly.
 Instead it polls /device/ping every few seconds, reporting its SSID as a
 heartbeat and getting back whether the dashboard has requested a fresh
-sample. Online/offline is derived from how recently that heartbeat landed,
-not a persistent connection.
+sample — and, when it has, that patient's name (2026-08-24, for the TFT
+display added to hardware/esp32_sensor.ino), so the device can show whose
+test this is without a second round-trip. Online/offline is derived from
+how recently that heartbeat landed, not a persistent connection.
 
 Multi-tenant (2026-08-19): one physical shared device, no inherent per-reading
 owner — pending_sample_user_id records who armed it for the next capture, so
@@ -35,11 +37,20 @@ def ping(body: DevicePingIn):
         UPDATE device_state
         SET ssid = %s, last_seen = %s
         WHERE id = 1
-        RETURNING pending_sample
+        RETURNING pending_sample, pending_sample_user_id
         """,
         (body.ssid, datetime.now(timezone.utc)),
     )
-    return {"pending_sample": bool(row and row["pending_sample"])}
+    pending = bool(row and row["pending_sample"])
+    # patient_name (2026-08-24): only meaningful alongside pending=true — a
+    # periodic un-requested capture cycle has no pending_sample_user_id, so
+    # the firmware correctly has no name to show for that case either.
+    patient_name = None
+    if pending and row["pending_sample_user_id"]:
+        user_row = db.fetch_one("SELECT name FROM users WHERE id = %s", (row["pending_sample_user_id"],))
+        if user_row and user_row["name"]:
+            patient_name = user_row["name"]
+    return {"pending_sample": pending, "patient_name": patient_name}
 
 
 @router.get("/device/status")
