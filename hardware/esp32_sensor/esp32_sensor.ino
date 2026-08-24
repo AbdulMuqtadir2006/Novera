@@ -173,6 +173,12 @@ Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_RST);
 // Deliberately does NOT beep for the periodic un-requested auto-cycle, same
 // scoping as the TFT testing/thank-you screens.
 #define BUZZER_PIN 14
+// 2000 Hz confirmed by ear (2026-08-25) as the loudest of 1500-5000 Hz on
+// Hassan's actual bare piezo disc, via a one-off frequency-sweep test run
+// from setup() and removed once this was found — this GPIO-driven-piezo
+// setup's real loudness ceiling is electrical (3.3V logic, no driver
+// transistor) and mechanical (how rigidly the disc itself is mounted), not
+// something a different frequency alone fixes further.
 #define BUZZER_FREQ_HZ 2000
 #define BUZZER_DURATION_MS 200
 
