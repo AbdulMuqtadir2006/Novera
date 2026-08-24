@@ -23,6 +23,7 @@ const Login = lazy(() => import("./pages/Login"));
 const Signup = lazy(() => import("./pages/Signup"));
 const Buy = lazy(() => import("./pages/Buy"));
 const OrderConfirmation = lazy(() => import("./pages/OrderConfirmation"));
+const Safety = lazy(() => import("./pages/Safety"));
 
 const gated = (el) => <RequireAuth>{el}</RequireAuth>;
 
@@ -56,6 +57,7 @@ export default function App() {
                 <Route path="/self-care" element={gated(<SelfCare />)} />
                 <Route path="/buy" element={<Buy />} />
                 <Route path="/order/:token" element={<OrderConfirmation />} />
+                <Route path="/safety" element={<Safety />} />
                 {/* /subscription was a placeholder before the pivot to one-time
                     device/bundle pricing — redirect any old links/bookmarks. */}
                 <Route path="/subscription" element={<Navigate to="/buy" replace />} />

@@ -27,7 +27,7 @@ const columns = [
     links: [
       { label: "Privacy", to: "/more" },
       { label: "Terms", to: "/more" },
-      { label: "Research disclaimer", to: "/more" },
+      { label: "AI Safety & Oversight", to: "/safety" },
     ],
   },
 ];
