@@ -18,12 +18,15 @@
  * - MQ gas sensor: wired for power only (no signal pin connected), purely
  *   so its onboard LED lights up. Not read, not sent anywhere.
  * - TFT display (240x320 SPI, ILI9341-compatible, added 2026-08-24):
- *   patient-facing status only — shows "NOVERA" idle, the patient's name
- *   while their requested test is running (dashboard/WhatsApp arm flow
- *   only — see WIRING below and showTestingScreen()), then "Thank you,
- *   <name>" for a few seconds after the send completes. The periodic
- *   un-requested auto-cycle (SEND_INTERVAL_MS) has no associated patient,
- *   so it deliberately does NOT touch the display — see loop().
+ *   patient-facing status only, landscape orientation, plain white text on
+ *   black. On boot: blinks the screen white twice, then "NOVERA" /
+ *   "Starting...", then "Ready", then settles into idle "NOVERA" — see
+ *   runBootSequence(). After boot: idle "NOVERA", the patient's name while
+ *   their requested test is running (dashboard/WhatsApp arm flow only —
+ *   see WIRING below and showTestingScreen()), then "Thank you, <name>"
+ *   for a few seconds after the send completes. The periodic un-requested
+ *   auto-cycle (SEND_INTERVAL_MS) has no associated patient, so it
+ *   deliberately does NOT touch the display — see loop().
  *
  * CALIBRATION HAPPENS ON THE BACKEND, NOT HERE: this firmware's only job is
  * to capture the two pads' raw AS7341 channels (F1..F8, Clear, NIR) as
@@ -145,12 +148,17 @@ const unsigned long PING_INTERVAL_MS = 1UL * 1000UL;
 DHT dht(DHTPIN, DHTTYPE);
 
 // ---- TFT display (240x320 SPI, ILI9341-compatible) — see header comment
-// for full wiring. SCK/MOSI/MISO aren't defined here: they're VSPI's fixed
-// hardware pins (18/23/19) on this board, used automatically by the
-// Adafruit_ILI9341 default constructor — only CS/DC/RST need explicit pins.
-#define TFT_CS  5
-#define TFT_DC  27
-#define TFT_RST 26
+// for full wiring. SCK/MOSI/MISO are VSPI's fixed hardware pins on this
+// board (18/23/19) — defined here too (not just wired) so setup() can pass
+// them to SPI.begin() explicitly; leaving that implicit occasionally left
+// the display blank-but-backlit on some ESP32 core / Adafruit_ILI9341
+// version combinations even with correct wiring.
+#define TFT_CS   5
+#define TFT_DC   27
+#define TFT_RST  26
+#define TFT_SCK  18
+#define TFT_MOSI 23
+#define TFT_MISO 19
 Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_RST);
 #define TFT_THANK_YOU_MS 4000UL // how long "Thank you, <name>" stays up before returning to idle
 
@@ -252,9 +260,17 @@ void tftCenterText(const char *text, int y, uint8_t size, uint16_t color) {
   tft.print(text);
 }
 
+// All screen text is plain white on black (2026-08-25, Hassan's call) — no
+// more cyan accent. Y positions below are tuned for LANDSCAPE (240 tall,
+// see tft.setRotation(1) in setup()), not portrait.
 void showIdleScreen() {
   tft.fillScreen(ILI9341_BLACK);
-  tftCenterText("NOVERA", 140, 4, ILI9341_CYAN);
+  tftCenterText("NOVERA", 100, 4, ILI9341_WHITE);
+}
+
+void showReadyScreen() {
+  tft.fillScreen(ILI9341_BLACK);
+  tftCenterText("Ready", 100, 4, ILI9341_WHITE);
 }
 
 // Shown while a dashboard/WhatsApp-requested capture is actually running —
@@ -264,9 +280,9 @@ void showIdleScreen() {
 // nameless "Testing..." if it's ever missing.
 void showTestingScreen(const char *name) {
   tft.fillScreen(ILI9341_BLACK);
-  tftCenterText("Testing...", 90, 2, ILI9341_WHITE);
+  tftCenterText("Testing...", 70, 2, ILI9341_WHITE);
   if (name && name[0]) {
-    tftCenterText(name, 150, 3, ILI9341_CYAN);
+    tftCenterText(name, 140, 3, ILI9341_WHITE);
   }
 }
 
@@ -274,10 +290,37 @@ void showTestingScreen(const char *name) {
 // then loop() returns the display to showIdleScreen().
 void showThankYouScreen(const char *name) {
   tft.fillScreen(ILI9341_BLACK);
-  tftCenterText("Thank you", 110, 3, ILI9341_CYAN);
+  tftCenterText("Thank you", 70, 3, ILI9341_WHITE);
   if (name && name[0]) {
-    tftCenterText(name, 160, 3, ILI9341_WHITE);
+    tftCenterText(name, 140, 3, ILI9341_WHITE);
   }
+}
+
+// ---- Boot sequence (2026-08-25): blink white x2, "NOVERA / Starting...",
+// "Ready", then settles into the normal showIdleScreen(). Runs once from
+// setup(), after tft.begin()/setRotation().
+#define TFT_BLINK_ON_MS   200
+#define TFT_BLINK_OFF_MS  200
+#define TFT_SPLASH_MS     1500
+#define TFT_READY_MS      1000
+
+void runBootSequence() {
+  for (int i = 0; i < 2; i++) {
+    tft.fillScreen(ILI9341_WHITE);
+    delay(TFT_BLINK_ON_MS);
+    tft.fillScreen(ILI9341_BLACK);
+    delay(TFT_BLINK_OFF_MS);
+  }
+
+  tft.fillScreen(ILI9341_BLACK);
+  tftCenterText("NOVERA", 70, 4, ILI9341_WHITE);
+  tftCenterText("Starting...", 140, 2, ILI9341_WHITE);
+  delay(TFT_SPLASH_MS);
+
+  showReadyScreen();
+  delay(TFT_READY_MS);
+
+  showIdleScreen();
 }
 
 // Keeps the status LED in sync with the current WiFi state. Call after
@@ -624,9 +667,12 @@ void setup() {
   // here. Calling as7341.begin() here too would just be a second redundant
   // init on every boot for no benefit.
 
+  // Explicit SPI.begin() with the actual wired pins, before tft.begin() —
+  // see the TFT_SCK/TFT_MOSI/TFT_MISO comment above.
+  SPI.begin(TFT_SCK, TFT_MISO, TFT_MOSI, TFT_CS);
   tft.begin();
-  tft.setRotation(0); // portrait, 240 wide x 320 tall — flip to 2 if your module is mounted upside down
-  showIdleScreen();
+  tft.setRotation(1); // landscape, 320 wide x 240 tall — use 3 instead if it's mounted upside down
+  runBootSequence();  // blink x2 -> "NOVERA / Starting..." -> "Ready" -> idle "NOVERA"
 
   WiFi.mode(WIFI_STA);
   wifiMulti.addAP(WIFI_SSID_1, WIFI_PASSWORD_1);
