@@ -70,19 +70,28 @@ export function TeamShowcaseSection() {
         <motion.div variants={staggerItem}>
           <PanelLabel icon={Trophy}>Our Team</PanelLabel>
           <ImageSlideshow images={TEAM_PHOTOS} emptyIcon={Trophy} emptyLabel="Team photos coming soon" />
-          <PanelCaption>The people building Novera, end to end.</PanelCaption>
+          <PanelCaption>
+            The people behind Novera — building the agent, the screening pipeline, and the
+            physical sensor hardware together, from first prototype to a live product.
+          </PanelCaption>
         </motion.div>
 
         <motion.div variants={staggerItem}>
           <PanelLabel icon={FileText}>Research Paper</PanelLabel>
           <PaperPanel />
-          <PanelCaption>The published research behind the science.</PanelCaption>
+          <PanelCaption>
+            Our written submission covering the screening approach, the agentic architecture
+            behind the WhatsApp Agent, and how human oversight is built into every decision.
+          </PanelCaption>
         </motion.div>
 
         <motion.div variants={staggerItem}>
           <PanelLabel icon={TestTube2}>Product Testing</PanelLabel>
           <ImageSlideshow images={TESTING_PHOTOS} emptyIcon={TestTube2} emptyLabel="Testing photos coming soon" />
-          <PanelCaption>Hands-on testing with the physical device.</PanelCaption>
+          <PanelCaption>
+            Real hands-on testing of the physical NOVERA device — capturing saliva samples,
+            checking sensor readings, and confirming the WhatsApp experience end to end.
+          </PanelCaption>
         </motion.div>
       </motion.div>
 
