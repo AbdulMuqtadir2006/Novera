@@ -24,11 +24,14 @@ function PaperPanel() {
       </div>
     );
   }
+  // object-contain, not object-cover (2026-08-25) — the actual paper photo
+  // is a tall document page (ratio ~0.7), and cropping it to fill a 4:3 box
+  // would cut off real content. bg-ink/40 fills the letterbox space.
   const img = (
     <img
       src={RESEARCH_PAPER.image}
       alt="Novera research paper"
-      className="aspect-[4/3] w-full rounded-2xl border border-white/10 object-cover"
+      className="aspect-[4/3] w-full rounded-2xl border border-white/10 bg-ink/40 object-contain"
     />
   );
   return RESEARCH_PAPER.link ? (

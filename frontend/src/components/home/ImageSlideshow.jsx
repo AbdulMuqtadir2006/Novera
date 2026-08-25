@@ -35,26 +35,36 @@ export function ImageSlideshow({ images = [], emptyIcon: EmptyIcon = Images, emp
   }
 
   return (
-    <div
-      className={`relative aspect-[4/3] w-full overflow-hidden rounded-2xl border border-white/10 bg-ink/40 ${className}`}
-      onMouseEnter={() => setPaused(true)}
-      onMouseLeave={() => setPaused(false)}
-    >
-      <AnimatePresence mode="wait">
-        <motion.img
-          key={images[safeIndex].src}
-          src={images[safeIndex].src}
-          alt={images[safeIndex].alt || ""}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.6, ease: "easeInOut" }}
-          className="absolute inset-0 h-full w-full object-cover"
-        />
-      </AnimatePresence>
+    <div className={className}>
+      <div
+        className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl border border-white/10 bg-ink/40"
+        onMouseEnter={() => setPaused(true)}
+        onMouseLeave={() => setPaused(false)}
+      >
+        {/* object-contain, not object-cover (2026-08-25) — real photos here
+            range from portrait (0.7) to wide landscape (1.78), and cropping
+            to fill a fixed box would cut people/content out of several of
+            them. Always shows the whole photo; bg-ink/40 above fills
+            whatever letterbox space is left. */}
+        <AnimatePresence mode="wait">
+          <motion.img
+            key={images[safeIndex].src}
+            src={images[safeIndex].src}
+            alt={images[safeIndex].alt || ""}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.6, ease: "easeInOut" }}
+            className="absolute inset-0 h-full w-full object-contain"
+          />
+        </AnimatePresence>
+      </div>
 
+      {/* Dots live below the frame, not overlaid on it — with object-contain
+          a portrait photo can reach the bottom edge of the box, so an
+          overlaid dot strip would sit on top of real photo content. */}
       {images.length > 1 && (
-        <div className="absolute inset-x-0 bottom-3 flex items-center justify-center gap-1.5">
+        <div className="mt-3 flex items-center justify-center gap-1.5">
           {images.map((_, i) => (
             <button
               key={i}
