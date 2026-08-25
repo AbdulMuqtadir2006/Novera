@@ -11,8 +11,8 @@ function MemberPhoto({ src, alt }) {
   const [failed, setFailed] = useState(false);
   if (failed) {
     return (
-      <div className="flex aspect-[4/5] w-full items-center justify-center bg-white/[0.03] text-white/15">
-        <User size={48} strokeWidth={1.25} />
+      <div className="flex aspect-[1/1] w-full items-center justify-center bg-white/[0.03] text-white/15">
+        <User size={40} strokeWidth={1.25} />
       </div>
     );
   }
@@ -21,7 +21,7 @@ function MemberPhoto({ src, alt }) {
       src={src}
       alt={alt}
       onError={() => setFailed(true)}
-      className="aspect-[4/5] w-full object-cover object-top transition-transform duration-500 ease-expo group-hover:scale-[1.04]"
+      className="aspect-[1/1] w-full object-cover object-top transition-transform duration-500 ease-expo group-hover:scale-[1.04]"
     />
   );
 }
@@ -41,10 +41,10 @@ function MemberCard({ member }) {
       className="glass-card group flex h-full flex-col overflow-hidden transition-colors duration-300 hover:border-signal/40"
     >
       <MemberPhoto src={member.photo} alt={member.name} />
-      <div className="flex flex-1 flex-col p-7">
-        <h3 className="font-display text-lg font-bold text-white">{member.name}</h3>
-        <p className="mt-1 text-sm font-medium text-signal">{member.role}</p>
-        <p className="mt-3 text-sm leading-relaxed text-slate-400">{member.description}</p>
+      <div className="flex flex-1 flex-col p-5">
+        <h3 className="font-display text-base font-bold text-white">{member.name}</h3>
+        <p className="mt-1 text-xs font-medium text-signal">{member.role}</p>
+        <p className="mt-2.5 text-xs leading-relaxed text-slate-400">{member.description}</p>
       </div>
     </motion.div>
   );
@@ -68,7 +68,7 @@ export function TeamMembersSection() {
           The Team
         </h2>
         <motion.div
-          className="grid gap-6 sm:grid-cols-3"
+          className="mx-auto grid max-w-4xl gap-5 sm:grid-cols-3"
           variants={staggerContainer}
           initial="hidden"
           whileInView="show"
