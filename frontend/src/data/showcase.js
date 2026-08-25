@@ -18,6 +18,8 @@ export const TEAM_PHOTOS = [
 
 export const TESTING_PHOTOS = [
   { src: "/showcase/testing/testing-1.jpg", alt: "Testing the Novera device" },
+  { src: "/showcase/testing/testing-2.jpg", alt: "Testing the Novera device" },
+  { src: "/showcase/testing/testing-3.jpg", alt: "Testing the Novera device" },
 ];
 
 // Single static image, not a slideshow.
