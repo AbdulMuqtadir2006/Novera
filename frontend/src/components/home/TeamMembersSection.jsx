@@ -51,17 +51,20 @@ function MemberCard({ member }) {
 }
 
 // "Meet the Team" (2026-08-25) — sits right after the "Behind Novera"
-// showcase, deliberately close to it: a small top padding and a plain bold
-// heading instead of the shared Section component's eyebrow/title/intro
-// treatment, so the two photo groups read as one continuous "behind the
-// scenes" block rather than two separate, far-apart homepage sections. Dark
-// glass cards matching the rest of the homepage; clean and minimal per
-// Hassan's own spec — no gradients/tags/stats/icons beyond the portrait.
+// showcase, pulled up with a negative top margin (not just small padding)
+// to actually close the gap left by Section's own py-24/32 bottom padding
+// on that previous section — Section is shared by many homepage sections,
+// so its own padding wasn't touched. Heading uses the same font-display
+// title scale every other section title on the site uses (see Section.jsx)
+// instead of a smaller ad-hoc size, so it still reads as a "real" section
+// heading despite skipping the eyebrow/intro copy. Dark glass cards
+// matching the rest of the homepage; clean and minimal per Hassan's own
+// spec — no gradients/tags/stats/icons beyond the portrait.
 export function TeamMembersSection() {
   return (
-    <section id="team" className="relative pb-24 pt-4 sm:pb-32 sm:pt-8">
+    <section id="team" className="relative -mt-16 pb-24 sm:-mt-24 sm:pb-32">
       <div className="container-page">
-        <h2 className="mb-8 text-center font-display text-2xl font-bold text-white sm:text-3xl">
+        <h2 className="text-balance mb-10 text-center font-display text-3xl font-bold leading-tight text-white sm:text-4xl md:text-[2.75rem]">
           The Team
         </h2>
         <motion.div
