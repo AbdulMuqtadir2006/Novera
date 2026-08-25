@@ -607,8 +607,16 @@ def _build_tools(
     screening_state: Optional[dict[str, Any]] = None,
     allow_screening: bool = True,
     allow_booking: bool = True,
+    prefetched_facts: Optional[dict[str, Any]] = None,
 ) -> list:
     facts_cache: dict[str, Any] = {}
+    if prefetched_facts is not None:
+        # Latency fix (2026-08-25): callers that already looked facts up
+        # (handle_inbound/handle_trigger, both of which need them anyway to
+        # inject into the first message — see below) seed the cache here so
+        # get_patient_facts is a free instant hit instead of a duplicate
+        # real lookup, if the model calls it anyway.
+        facts_cache["facts"] = prefetched_facts
     # Shared across run_screening_pipeline/generate_report/request_retest for
     # this one run only (fresh dict per _build_tools call, same "concurrent
     # runs never share state" guarantee facts_cache already has). Ported from
@@ -1309,11 +1317,27 @@ def handle_inbound(from_number: str, text: str, lang: str = "en") -> str:
         logger.info("whatsapp_agent: AI not configured, using deterministic fallback for phone=%s", phone)
         return _fallback_answer(_gather_patient_facts(user), lang) if user else _unregistered_message(lang)
 
-    tools = _build_tools(user, phone, lang, within_window=True)
+    # Latency fix (2026-08-25): get_patient_facts is a pure DB lookup (fast)
+    # that the system prompt requires calling before answering almost any
+    # real question — previously that cost a full extra sequential
+    # OpenRouter round-trip on nearly every conversation turn (one call to
+    # decide to call the tool, a second to actually answer). Prefetching it
+    # here and handing it to the model directly means the common case
+    # answers in ONE model call instead of two-plus; the tool stays
+    # available (pre-seeded, so calling it again is a free cache hit) for
+    # the rarer case where facts change mid-loop (e.g. after
+    # run_screening_pipeline) and need refreshing.
+    facts = _gather_patient_facts(user) if user else None
+    tools = _build_tools(user, phone, lang, within_window=True, prefetched_facts=facts)
     messages: list = [
         SystemMessage(content=_system_prompt(user, lang, trigger="whatsapp.inbound")),
-        HumanMessage(content=f"Patient WhatsApp message: {text!r}"),
     ]
+    if facts is not None:
+        messages.append(SystemMessage(
+            content=f"Patient facts (already looked up — no need to call get_patient_facts again "
+                    f"unless you take an action this turn that changes them):\n{_facts_to_text(facts)}"
+        ))
+    messages.append(HumanMessage(content=f"Patient WhatsApp message: {text!r}"))
     _wa_emit("wa_trigger_message", "start", "Patient message received")
     _wa_emit("wa_agent", "start", "WhatsApp Agent deciding")
     reply: Optional[str] = None
@@ -1440,6 +1464,13 @@ def handle_trigger(trigger: str, user: dict[str, Any], payload: Optional[dict[st
         context = whatsapp_context.get_or_create(user["id"])
         within_window = whatsapp_context.within_24h_window(context)
         screening_state: dict[str, Any] = {}
+        # Latency fix (2026-08-25, same reasoning as handle_inbound): prefetch
+        # so the model doesn't need a dedicated first round-trip just to call
+        # get_patient_facts before it can decide whether/what to send. Not
+        # meaningful for sensor.reading_received specifically, since THIS
+        # run's own screening result isn't computed yet at this point — the
+        # facts model still needs are correct for every other trigger though.
+        facts = _gather_patient_facts(user)
         tools = _build_tools(
             user, phone, lang, within_window=within_window, screening_state=screening_state,
             allow_screening=(trigger != "reading.followup"),
@@ -1449,11 +1480,16 @@ def handle_trigger(trigger: str, user: dict[str, Any], payload: Optional[dict[st
             # patient replies to an offer, that reply comes in through
             # handle_inbound instead, where booking tools are available again.
             allow_booking=False,
+            prefetched_facts=facts,
         )
 
         payload_line = f"\n\nTrigger payload: {payload}" if payload else ""
         messages: list = [
             SystemMessage(content=_system_prompt(user, lang, trigger=trigger)),
+            SystemMessage(
+                content=f"Patient facts (already looked up — no need to call get_patient_facts again "
+                        f"unless you take an action this turn that changes them):\n{_facts_to_text(facts)}"
+            ),
             HumanMessage(content=f"Trigger fired: {trigger}{payload_line}"),
         ]
         wa_trigger_node = _TRIGGER_TO_NODE[trigger]
