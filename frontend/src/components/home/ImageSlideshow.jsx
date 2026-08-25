@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Images } from "lucide-react";
 
-const AUTO_ADVANCE_MS = 4000;
+const AUTO_ADVANCE_MS = 2000;
 
 // Auto-advancing crossfade slideshow. Pauses on hover (desktop) so a visitor
 // reading a caption doesn't have the photo change under them. Renders an

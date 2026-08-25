@@ -13,6 +13,10 @@ function PanelLabel({ icon: Icon, children }) {
   );
 }
 
+function PanelCaption({ children }) {
+  return <p className="mt-3 text-sm leading-relaxed text-slate-400">{children}</p>;
+}
+
 // Single static image (not a slideshow) — optionally links out if a URL for
 // the published paper is set in data/showcase.js.
 function PaperPanel() {
@@ -66,18 +70,25 @@ export function TeamShowcaseSection() {
         <motion.div variants={staggerItem}>
           <PanelLabel icon={Trophy}>Our Team</PanelLabel>
           <ImageSlideshow images={TEAM_PHOTOS} emptyIcon={Trophy} emptyLabel="Team photos coming soon" />
+          <PanelCaption>The people building Novera, end to end.</PanelCaption>
         </motion.div>
 
         <motion.div variants={staggerItem}>
           <PanelLabel icon={FileText}>Research Paper</PanelLabel>
           <PaperPanel />
+          <PanelCaption>The published research behind the science.</PanelCaption>
         </motion.div>
 
         <motion.div variants={staggerItem}>
           <PanelLabel icon={TestTube2}>Product Testing</PanelLabel>
           <ImageSlideshow images={TESTING_PHOTOS} emptyIcon={TestTube2} emptyLabel="Testing photos coming soon" />
+          <PanelCaption>Hands-on testing with the physical device.</PanelCaption>
         </motion.div>
       </motion.div>
+
+      <p className="mt-10 text-center text-sm text-slate-500">
+        No stock photos, no mockups — this is the actual team, paper, and hardware behind Novera.
+      </p>
     </Section>
   );
 }
