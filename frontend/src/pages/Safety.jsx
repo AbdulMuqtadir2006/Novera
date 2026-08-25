@@ -1,57 +1,126 @@
 import { motion } from "framer-motion";
 import {
-  ShieldCheck,
-  UserCheck,
-  ScrollText,
-  SlidersHorizontal,
-  Stethoscope,
+  Activity,
+  ArrowDown,
+  ArrowRight,
+  BarChart3,
+  BrainCircuit,
+  CheckCircle2,
+  Eye,
+  GitCompare,
+  KeyRound,
   Lock,
+  ScrollText,
+  ShieldCheck,
+  Stethoscope,
+  UserCheck,
 } from "lucide-react";
 import { PageShell } from "../components/layout/PageShell";
-import { staggerContainer, staggerItem } from "../components/ui/Reveal";
+import { Reveal, staggerContainer, staggerItem } from "../components/ui/Reveal";
+
+const PIPELINE_STEPS = [
+  { icon: Activity, label: "Sensor reading captured" },
+  { icon: BarChart3, label: "Scored against fixed clinical reference ranges" },
+  { icon: GitCompare, label: "Checked for similarity to real, confirmed prior cases" },
+  { icon: BrainCircuit, label: "One narrow AI call picks a result — from that evidence only" },
+];
 
 const MECHANISMS = [
   {
     icon: ShieldCheck,
-    title: "No-fabrication guarantee",
-    body: "If the AI screening call fails, times out, or returns anything invalid, the system never falls back to a guess. The case is returned to \"needs retest\" and nothing gets saved — no result is ever shown that didn't come from a real, validated model response.",
+    title: "No hallucination, ever",
+    body: "The AI that makes a screening decision is never allowed to invent anything. Its instructions are explicit: use only the evidence it's actually given — never invent a medical threshold, a diagnosis, or a historical case that doesn't exist. If its response ever fails validation, times out, or comes back malformed, nothing is saved. The reading is returned to “needs retest,” never silently replaced with a plausible-sounding guess.",
+  },
+  {
+    icon: BarChart3,
+    title: "A reading never jumps straight to a conclusion",
+    body: "Every reading is first scored against fixed clinical reference ranges, and separately checked for similarity against a bounded set of real, clinician-confirmed prior cases — both using plain, deterministic math, computed before any AI is even called. Only after that grounding exists does the system make one single, narrow decision call to pick a final result from those pre-computed numbers.",
+  },
+  {
+    icon: Eye,
+    title: "The Orchestral AI double-checks before you ever see a result",
+    body: "It doesn't just accept whatever the screening decision returns. If a result isn't confident or doesn't pass validation, the case is automatically flagged for human review and marked “retest required” — it is never shown to the patient as if it were real. A deliberate safety override is also active right now: every organ flag is capped at “low risk” system-wide until the physical sensor's own calibration is validated against real clinical data, so unvalidated hardware can never shock a patient with a false alarm.",
   },
   {
     icon: UserCheck,
-    title: "Human sign-off required",
-    body: "An AI screening result never counts as verified ground truth on its own. A clinician must explicitly review and confirm a case through a dedicated tool before it's treated as real — the AI never grades its own homework.",
+    title: "Every flagged case goes to a human, never silently decided",
+    body: "Nothing about how a result was reached is hidden. Every screening decision — the reading it came from, the score computed for each organ system, and the model's own reasoning — is permanently logged in a full audit trail. A result only ever counts as verified ground truth once a clinician has explicitly reviewed and confirmed it through a dedicated tool; any case the system itself flags as uncertain is preserved for that same manual review — by a clinician or the engineering team — never quietly auto-approved.",
   },
   {
-    icon: ScrollText,
-    title: "Full decision audit trail",
-    body: "Every single screening decision — the reading it came from, the score computed for each organ system, and the model's final reasoning — is permanently logged. Nothing about how a result was reached is hidden or discarded.",
-  },
-  {
-    icon: SlidersHorizontal,
-    title: "A hardware safety switch",
-    body: "Until the physical sensor's calibration is validated against real clinical data, a deliberate override forces every organ flag down to \"low risk\" — the system will not let unvalidated hardware tell someone they may be sick.",
+    icon: Lock,
+    title: "Encryption and data security",
+    body: "All traffic between a patient's device, the app, and the backend runs over HTTPS/TLS. Passwords are salted and hashed — never stored, logged, or visible in plain text, not even to us. Every inbound WhatsApp message is cryptographically signature-verified (HMAC) before the system trusts it actually came from Meta and not an impersonator. Every patient's data is scoped strictly to their own account — there is no code path that lets one patient's data leak into another's.",
   },
   {
     icon: Stethoscope,
     title: "Never a diagnosis",
-    body: "Every report, message, and the physical device itself is explicit: this is screening support, not a medical diagnosis, and a flagged result always routes toward booking a real clinician — never toward self-treatment.",
-  },
-  {
-    icon: Lock,
-    title: "Data security basics, done properly",
-    body: "Passwords are salted and hashed, never stored in plain text. Every inbound WhatsApp message is cryptographically signature-verified before it's trusted. Access to a patient's data is scoped strictly to their own account.",
+    body: "Every report, every WhatsApp message, and the physical device itself all say the same thing plainly: this is screening support, not a medical diagnosis. A flagged result always routes toward booking a real clinician appointment — never toward self-treatment or a false sense of certainty.",
   },
 ];
+
+function PipelineFlow() {
+  return (
+    <Reveal>
+      <div className="rounded-2xl border border-signal/15 bg-paper p-6 sm:p-8">
+        <p className="mb-6 text-center font-mono text-xs uppercase tracking-[0.2em] text-depth/45">
+          From a reading to a result
+        </p>
+
+        <div className="flex flex-col items-center gap-3 lg:flex-row lg:items-stretch lg:justify-between lg:gap-2">
+          {PIPELINE_STEPS.map((step, i) => (
+            <div key={step.label} className="flex flex-col items-center gap-3 lg:flex-row lg:items-stretch">
+              <div className="flex w-full max-w-[220px] flex-col items-center gap-2 rounded-xl border border-depth/10 bg-white/60 px-4 py-4 text-center lg:max-w-[190px]">
+                <span className="flex h-9 w-9 items-center justify-center rounded-full border border-signal/25 bg-signal/10 text-signal">
+                  <step.icon size={17} strokeWidth={1.75} />
+                </span>
+                <span className="text-xs font-medium leading-snug text-depth/75">{step.label}</span>
+              </div>
+              {i < PIPELINE_STEPS.length - 1 && (
+                <span className="text-depth/25" aria-hidden="true">
+                  <ArrowDown size={18} className="lg:hidden" />
+                  <ArrowRight size={18} className="hidden lg:mt-[38px] lg:block" />
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className="mx-auto mt-6 flex w-full max-w-[220px] justify-center text-depth/25 lg:max-w-none" aria-hidden="true">
+          <ArrowDown size={18} />
+        </div>
+
+        <div className="mt-2 grid gap-4 sm:grid-cols-2">
+          <div className="flex items-start gap-3 rounded-xl border border-status-good/30 bg-status-good/[0.07] px-4 py-4">
+            <CheckCircle2 size={20} className="mt-0.5 shrink-0 text-status-good" strokeWidth={1.75} />
+            <p className="text-sm leading-relaxed text-depth/75">
+              <span className="font-semibold text-depth">Confident and valid</span> — shown to the
+              patient as a real result.
+            </p>
+          </div>
+          <div className="flex items-start gap-3 rounded-xl border border-status-watch/30 bg-status-watch/[0.08] px-4 py-4">
+            <ShieldCheck size={20} className="mt-0.5 shrink-0 text-status-watch" strokeWidth={1.75} />
+            <p className="text-sm leading-relaxed text-depth/75">
+              <span className="font-semibold text-depth">Uncertain or invalid</span> — flagged
+              “retest required” and sent for human review. Never shown as a result.
+            </p>
+          </div>
+        </div>
+      </div>
+    </Reveal>
+  );
+}
 
 export default function Safety() {
   return (
     <PageShell
       eyebrow="AI Safety & Oversight"
       title="How we keep humans in control"
-      intro="Novera's agent makes real decisions — screening a reading, booking an appointment, reaching out proactively. Every one of those decisions is built around the same rule: the AI can act, but a human can always see, check, and override what it did."
+      intro="The Orchestral AI (WhatsApp) makes real decisions — screening a reading, booking an appointment, reaching out proactively. Every one of those decisions is built around the same rule: the AI can act, but a human can always see, check, and override what it did."
     >
+      <PipelineFlow />
+
       <motion.div
-        className="grid gap-5 sm:grid-cols-2"
+        className="mt-10 grid gap-5 sm:grid-cols-2"
         variants={staggerContainer}
         initial="hidden"
         animate="show"
@@ -71,11 +140,20 @@ export default function Safety() {
         ))}
       </motion.div>
 
-      <div className="mt-10 rounded-2xl border border-depth/10 bg-depth/[0.03] p-6">
+      <div className="mt-10 flex items-start gap-3 rounded-2xl border border-depth/10 bg-depth/[0.03] p-6">
+        <KeyRound size={20} className="mt-0.5 shrink-0 text-depth/40" strokeWidth={1.75} />
         <p className="text-sm leading-relaxed text-depth/70">
           Novera is a research-stage screening platform. It is built to explore what saliva
           biomarkers can tell us — not to diagnose, treat, or replace care from a medical
           professional.
+        </p>
+      </div>
+
+      <div className="mt-6 flex items-start gap-3 rounded-2xl border border-depth/10 bg-depth/[0.03] p-6">
+        <ScrollText size={20} className="mt-0.5 shrink-0 text-depth/40" strokeWidth={1.75} />
+        <p className="text-sm leading-relaxed text-depth/70">
+          Every mechanism on this page is grounded in the actual code that runs in production —
+          this is a description of what the system does, not an aspiration.
         </p>
       </div>
     </PageShell>
