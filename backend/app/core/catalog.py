@@ -2,11 +2,14 @@
 
 *** LOAD-BEARING, DO NOT EDIT SILENTLY ***
 The four USD prices below are the actual numbers the NOVERA business/
-financial model is built on (device COGS $95/margin $34; Starter bundle
-COGS $15/margin $12 @ 44.4%; Value bundle COGS $37.5/margin $20.5 @ 35.3%;
-Pro bundle COGS $75/margin $23 @ 23.5%). If a price ever needs to change,
-flag it and update the business plan alongside this file — never edit only
-here. This module is the SINGLE source of truth for pricing: the frontend
+financial model is built on (device COGS $95/margin $34). The three bundle
+prices were deliberately dropped below COGS on 2026-08-25 as intentional
+loss-leader/promotional pricing (Starter: COGS $15, price $3, margin -$12;
+Value: COGS $37.5, price $6, margin -$31.5; Pro: COGS $75, price $13,
+margin -$62) — every bundle sale currently operates at a loss by design,
+not an error. If a price ever needs to change, flag it and update the
+business plan alongside this file — never edit only here. This module is
+the SINGLE source of truth for pricing: the frontend
 has no hardcoded prices of its own, it fetches GET /api/catalog, and
 checkout always prices from here server-side, never from client input
 (never trust a client-submitted price for what to charge).
@@ -62,9 +65,9 @@ class Product:
 
 
 DEVICE = Product(sku="DEVICE", item_type="device", name="NOVERA Reader", usd_price=129, strip_count=None)
-STARTER = Product(sku="STARTER", item_type="bundle", name="Starter Bundle", usd_price=27, strip_count=10)
-VALUE = Product(sku="VALUE", item_type="bundle", name="Value Bundle", usd_price=58, strip_count=25)
-PRO = Product(sku="PRO", item_type="bundle", name="Pro Bundle", usd_price=98, strip_count=50)
+STARTER = Product(sku="STARTER", item_type="bundle", name="Starter Bundle", usd_price=3, strip_count=10)
+VALUE = Product(sku="VALUE", item_type="bundle", name="Value Bundle", usd_price=6, strip_count=25)
+PRO = Product(sku="PRO", item_type="bundle", name="Pro Bundle", usd_price=13, strip_count=50)
 
 CATALOG: dict[str, Product] = {p.sku: p for p in (DEVICE, STARTER, VALUE, PRO)}
 BUNDLE_SKUS = ("STARTER", "VALUE", "PRO")
