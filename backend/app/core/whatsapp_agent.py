@@ -218,6 +218,28 @@ def _find_user_by_phone(phone: str) -> Optional[dict[str, Any]]:
 ADMIN_SESSION_TTL_SECONDS = 24 * 3600
 _admin_authenticated_at: dict[str, float] = {}  # normalized phone -> time.monotonic()
 
+# Defense-in-depth against brute-forcing ADMIN_WA_TRIGGER_PHRASE (2026-08-25)
+# — not real security (the phrase itself is the actual protection, per its
+# own config.py docstring), just a cheap guard against automated guessing
+# in front of a live demo audience. Only counts short, phrase-length-ish
+# non-matching messages as a "guess", not every message a patient happens to
+# send — an ordinary conversation, even a chatty one, is very unlikely to
+# trip this; a script trying many candidate phrases rapidly will.
+ADMIN_TRIGGER_MAX_ATTEMPTS = 8
+ADMIN_TRIGGER_WINDOW_SECONDS = 10 * 60
+_admin_trigger_attempts: dict[str, list[float]] = {}  # normalized phone -> guess timestamps
+
+
+def _admin_trigger_locked_out(phone: str) -> bool:
+    now = time.monotonic()
+    attempts = [t for t in _admin_trigger_attempts.get(phone, []) if now - t <= ADMIN_TRIGGER_WINDOW_SECONDS]
+    _admin_trigger_attempts[phone] = attempts
+    return len(attempts) >= ADMIN_TRIGGER_MAX_ATTEMPTS
+
+
+def _record_admin_trigger_attempt(phone: str) -> None:
+    _admin_trigger_attempts.setdefault(phone, []).append(time.monotonic())
+
 
 def _admin_session_user() -> Optional[dict[str, Any]]:
     admin_id = demo_account.admin_user_id()
@@ -246,19 +268,33 @@ def _try_admin_trigger(from_number: str, text: str) -> Optional[dict[str, Any]]:
     remembers this phone as admin-authenticated for ADMIN_SESSION_TTL_
     SECONDS (see _admin_session_active) so the sender doesn't have to resend
     the phrase every message. Returns the admin user row on match, None
-    otherwise (including when the feature is unconfigured, or the admin
-    account hasn't been created yet)."""
+    otherwise (including when the feature is unconfigured, the admin account
+    hasn't been created yet, or the sender is currently rate-limited — see
+    _admin_trigger_locked_out)."""
     phrase = config.ADMIN_WA_TRIGGER_PHRASE
-    if not phrase or not text or text.strip().casefold() != phrase.strip().casefold():
+    if not phrase or not text:
+        return None
+    normalized = normalize_phone(from_number)
+    stripped = text.strip()
+    matches = stripped.casefold() == phrase.strip().casefold()
+    if not matches:
+        # Only a short, phrase-length-ish miss counts toward the guess
+        # budget — a genuine conversational sentence from a patient
+        # shouldn't burn down the same budget a real guessing script would.
+        if len(stripped) <= len(phrase) + 20 and not _admin_trigger_locked_out(normalized):
+            _record_admin_trigger_attempt(normalized)
+        return None
+    if _admin_trigger_locked_out(normalized):
+        logger.warning("whatsapp_agent: admin trigger phrase matched but sender=%s is rate-limited, rejecting", normalized)
         return None
     row = _admin_session_user()
     if row:
-        _admin_authenticated_at[normalize_phone(from_number)] = time.monotonic()
+        _admin_authenticated_at[normalized] = time.monotonic()
         # Server-side logs only (Railway's private deploy logs, same
         # discipline as _find_user_by_phone's own diagnostic above) — the
         # trigger phrase itself is never logged, only that it fired and
         # which sender number used it, for an audit trail.
-        logger.info("whatsapp_agent: admin trigger recognized, sender=%s", normalize_phone(from_number))
+        logger.info("whatsapp_agent: admin trigger recognized, sender=%s", normalized)
     return row
 
 
@@ -316,6 +352,40 @@ _GREETING_RE = re.compile(
 
 def _is_plain_greeting(text: str) -> bool:
     return bool(_GREETING_RE.match((text or "").strip()))
+
+
+# Emergency-message keyword gate (2026-08-25) — deliberately simple and
+# deterministic, not another LLM call: if something matters this much, don't
+# trust it to a model call that could fail, drift, or get talked out of
+# redirecting. Matches ANYWHERE in the message (unlike _GREETING_RE, which
+# must match the whole message) since a real emergency is rarely phrased as
+# a bare keyword. Kept to high-specificity phrases only (no bare "pain") so
+# an ordinary question ("is mild stomach pain normal after eating?") never
+# gets hijacked into the emergency reply.
+_EMERGENCY_RE = re.compile(
+    r"(can'?t breathe|cannot breathe|chest pain|heart attack|having a stroke|"
+    r"severe bleeding|bleeding heavily|suicidal|kill myself|want to die|"
+    r"overdose|need an ambulance|"
+    r"لا أستطيع التنفس|ألم في الصدر|نوبة قلبية|سكتة دماغية|نزيف حاد|"
+    r"أريد أن أموت|أفكر في الانتحار|أحتاج إسعاف)",
+    re.IGNORECASE,
+)
+
+
+def _is_emergency_message(text: str) -> bool:
+    return bool(_EMERGENCY_RE.search((text or "").strip()))
+
+
+def _emergency_reply(lang: str) -> str:
+    if lang == "ar":
+        return (
+            "🚨 نوفيرا أداة فحص أولي وليست خدمة طوارئ. إذا كانت هذه حالة طارئة حقيقية، يرجى "
+            "الاتصال فورًا بالرقم 9999 (الطوارئ في عُمان) أو التوجه إلى أقرب قسم طوارئ الآن."
+        )
+    return (
+        "🚨 NOVERA is a screening tool, not an emergency service. If this is a real medical "
+        "emergency, please call 9999 (Oman's emergency number) or go to the nearest ER right now."
+    )
 
 
 def _greeting_reply(user: Optional[dict[str, Any]], lang: str) -> str:
@@ -536,6 +606,7 @@ def _build_tools(
     within_window: bool,
     screening_state: Optional[dict[str, Any]] = None,
     allow_screening: bool = True,
+    allow_booking: bool = True,
 ) -> list:
     facts_cache: dict[str, Any] = {}
     # Shared across run_screening_pipeline/generate_report/request_retest for
@@ -625,7 +696,16 @@ def _build_tools(
     # file (2026-08-20 orchestrator merge) without silently failing mid-tool.
     tools = [get_patient_facts]
     if has_phone:
-        tools += [check_slot_availability, book_appointment, cancel_appointment, reschedule_appointment]
+        tools.append(check_slot_availability)
+        # book/cancel/reschedule are REAL writes — only offered on the reactive
+        # (patient-initiated) path (2026-08-25). Previously available on every
+        # proactive/autonomous trigger too, restrained only by a prompt
+        # sentence ("only call once the patient has agreed") — nothing
+        # code-level stopped an autonomous run (e.g. wellness.checkin) from
+        # booking/cancelling a real clinic slot on its own judgment. See
+        # handle_trigger, which now always passes allow_booking=False.
+        if allow_booking:
+            tools += [book_appointment, cancel_appointment, reschedule_appointment]
 
     # send_report_pdf and send_voice_note attach real media/documents — Meta
     # templates can't carry those, so unlike the 3 semantic proactive-send
@@ -1186,6 +1266,14 @@ def handle_inbound(from_number: str, text: str, lang: str = "en") -> str:
     — only `user` ever changes to the admin account."""
     phone = normalize_phone(from_number)
 
+    # Checked first, ahead of even the admin trigger — a real emergency takes
+    # priority over every other path in this function, including whichever
+    # account this number resolves to.
+    if _is_emergency_message(text):
+        logger.info("whatsapp_agent: emergency keyword match, phone=%s — hardcoded reply, no agent loop", phone)
+        whatsapp_client.send_message(_emergency_reply(lang), to=from_number)
+        return ""
+
     admin_row = _try_admin_trigger(from_number, text)
     if admin_row:
         whatsapp_context.mark_inbound(admin_row["id"])
@@ -1355,6 +1443,12 @@ def handle_trigger(trigger: str, user: dict[str, Any], payload: Optional[dict[st
         tools = _build_tools(
             user, phone, lang, within_window=within_window, screening_state=screening_state,
             allow_screening=(trigger != "reading.followup"),
+            # handle_trigger is exclusively the proactive/autonomous path (see
+            # this function's own docstring) — never let an autonomous run
+            # commit a real booking/cancellation on its own judgment. If the
+            # patient replies to an offer, that reply comes in through
+            # handle_inbound instead, where booking tools are available again.
+            allow_booking=False,
         )
 
         payload_line = f"\n\nTrigger payload: {payload}" if payload else ""

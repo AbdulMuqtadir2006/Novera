@@ -150,5 +150,15 @@ ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip().lower()
 # which sender number used it (see whatsapp_agent.py's _try_admin_trigger).
 ADMIN_WA_TRIGGER_PHRASE = os.getenv("ADMIN_WA_TRIGGER_PHRASE", "").strip()
 
+# ---- device auth (2026-08-25) ----
+# POST /api/readings and POST /device/ping previously had zero authentication —
+# anyone on the internet could inject fake biomarker readings or poll a
+# patient's first name. DEVICE_API_KEY, when set, is checked against the
+# X-Device-Key header on both endpoints (see deps.require_device_key).
+# Deliberately empty by default (no behavior change) until the matching key is
+# also flashed onto the physical ESP32 (hardware/esp32_sensor/esp32_sensor.ino) —
+# setting this on Railway before that reflash happens locks out the real device.
+DEVICE_API_KEY = os.getenv("DEVICE_API_KEY", "").strip()
+
 # ---- misc ----
 SERVICE_PORT = int(os.getenv("PORT", "8000"))

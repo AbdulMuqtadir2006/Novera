@@ -24,13 +24,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from .. import db
 from ..core import demo_account
 from ..core.device_control import arm_device_for_user, device_state
-from ..deps import require_user
+from ..deps import require_device_key, require_user
 from ..schemas import DevicePingIn
 
 router = APIRouter()
 
 
-@router.post("/device/ping")
+@router.post("/device/ping", dependencies=[Depends(require_device_key)])
 def ping(body: DevicePingIn):
     row = db.fetch_one(
         """

@@ -12,7 +12,16 @@ export function ProductImage({ src, alt, icon: Icon, className = "" }) {
   const [failed, setFailed] = useState(false);
 
   return (
-    <div className={`overflow-hidden rounded-2xl border border-black/10 ${className}`}>
+    // transform:translateZ(0) forces its own compositing layer — works
+    // around a real Safari/WebKit bug where `overflow-hidden` nested inside
+    // an ancestor using `transform-style: preserve-3d` (Tilt3DCard's tilt
+    // effect) renders this rounded, clipped image warped/distorted. Chrome
+    // and Firefox render the same markup correctly, which is why this only
+    // showed up on macOS/Safari (reported 2026-08-25) and not in dev testing.
+    <div
+      className={`overflow-hidden rounded-2xl border border-black/10 ${className}`}
+      style={{ transform: "translateZ(0)" }}
+    >
       {!src || failed ? (
         <div
           className="flex h-full w-full items-center justify-center bg-gradient-to-br from-signal/10 via-iris/10 to-vital/10"

@@ -21,6 +21,11 @@ ORGANS = ("KIDNEY", "LIVER", "ORAL")
 BIOMARKERS = ("ph", "urea_mg_dl", "creatinine_umol_l", "temperature_c")
 CREATININE_MGDL_TO_UMOLL = 88.42
 
+# The combined_score cutoff for a "medium" flag — exported so whatsapp_gating
+# can key the human-oversight safety floor off the real score directly,
+# independent of whether SUPPRESS_SCREENING_FLAGS forced the display flag down.
+MEDIUM_FLAG_THRESHOLD = 0.60
+
 # Canonical reference ranges — the same values novera.py has always used, and
 # that the migrated N001-N150 confirmed cases were labelled against.
 DEFAULT_REFERENCE_RANGES: dict[str, dict[str, tuple[float, float, float]]] = {
@@ -182,7 +187,7 @@ class ScoringEngine:
         combined_score = (
             0.55 * range_score + 0.45 * similarity_score if candidate_count > 0 else range_score
         )
-        flag = "high" if combined_score >= 0.80 else "medium" if combined_score >= 0.60 else "low"
+        flag = "high" if combined_score >= 0.80 else "medium" if combined_score >= MEDIUM_FLAG_THRESHOLD else "low"
         if config.SUPPRESS_SCREENING_FLAGS:
             # Temporary override (2026-08-20, Hassan's call) — sensors/
             # calibration aren't trustworthy enough yet to be telling real
@@ -337,15 +342,21 @@ def get_latest_screening_flag(user_id: int) -> Optional[dict[str, Any]]:
     specialist_results = row["specialist_results_json"]
     if isinstance(specialist_results, str):
         specialist_results = json.loads(specialist_results)
-    flag = next(
-        (r["flag"] for r in specialist_results if r["organ"] == row["final_prediction"]),
+    specialist = next(
+        (r for r in specialist_results if r["organ"] == row["final_prediction"]),
         None,
     )
-    if flag is None:
+    if specialist is None:
         return None
     return {
         "organ": row["final_prediction"],
-        "flag": flag,
+        "flag": specialist["flag"],
+        # combined_score is the real, never-suppressed number the flag above
+        # is derived from (see evaluate()) — kept alongside it specifically so
+        # callers like whatsapp_gating can make a human-oversight decision
+        # that doesn't depend on SUPPRESS_SCREENING_FLAGS having forced the
+        # display flag down to "low".
+        "combined_score": specialist["combined_score"],
         "confidence": row["final_confidence"],
         "case_id": row["case_id"],
     }

@@ -119,6 +119,15 @@ const char *WIFI_PASSWORD_2 = "12345678";
 const char *API_URL = "https://api.novera.fun/api/readings";
 const char *PING_URL = "https://api.novera.fun/api/device/ping";
 
+// Sent as the X-Device-Key header on both endpoints above (2026-08-25) —
+// backend/app/deps.py's require_device_key checks this against
+// config.DEVICE_API_KEY on Railway. Leave "" until that Railway env var is
+// actually set to the same value — an empty header is harmless (the backend
+// treats an unset DEVICE_API_KEY as "auth disabled"), but once Railway's key
+// is set, this MUST be updated and reflashed together, or the real device
+// starts getting 401s.
+const char *DEVICE_KEY = "";
+
 // How often to run a full test cycle on its own, with no request from the
 // dashboard (assumes a strip is available to insert when it fires).
 const unsigned long SEND_INTERVAL_MS = 5UL * 60UL * 1000UL;
@@ -606,6 +615,7 @@ void sendReading() {
     return;
   }
   http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Device-Key", DEVICE_KEY);
 
   int status = http.POST((uint8_t *)body, strlen(body));
   Serial.print("POST /api/readings -> ");
@@ -654,6 +664,7 @@ bool checkPendingSample(char *nameOut, size_t nameOutSize) {
   HTTPClient http;
   if (!http.begin(client, PING_URL)) return false;
   http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Device-Key", DEVICE_KEY);
 
   char body[96];
   snprintf(body, sizeof(body), "{\"ssid\":\"%s\"}", WiFi.SSID().c_str());

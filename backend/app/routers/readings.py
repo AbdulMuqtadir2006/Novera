@@ -9,7 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from .. import config, db
 from ..core import color_calibration, reading_synthesis, reference_data, whatsapp_agent
-from ..deps import require_user
+from ..deps import require_device_key, require_user
 from ..schemas import ReadingIn
 
 logger = logging.getLogger(__name__)
@@ -66,12 +66,14 @@ def history(days: int = 30, user: dict = Depends(require_user)):
     return reference_data.get_reading_history(user["id"], days)
 
 
-@router.post("/readings", status_code=201)
+@router.post("/readings", status_code=201, dependencies=[Depends(require_device_key)])
 def add_reading(body: ReadingIn, background_tasks: BackgroundTasks):
     """Simulates a fresh sample landing in the DB (optional body values;
     otherwise generate a plausible reading near the last one). This is the
-    exact trigger point the real ESP32 hits every 5 minutes (no auth) and
-    that any manual/simulated reading also hits.
+    exact trigger point the real ESP32 hits every 5 minutes and that any
+    manual/simulated reading also hits. Gated by require_device_key
+    (config.DEVICE_API_KEY) — see deps.py; no-op until that key is actually
+    configured and flashed onto the device.
 
     Multi-tenant (2026-08-19): one physical shared device with no inherent
     per-reading owner — atomically reads-and-clears device_state's

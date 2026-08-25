@@ -5,7 +5,7 @@ from typing import Optional
 
 from fastapi import Header, HTTPException
 
-from . import security
+from . import config, security
 
 
 def get_token(authorization: Optional[str] = Header(default=None)) -> Optional[str]:
@@ -24,3 +24,12 @@ def require_user(authorization: Optional[str] = Header(default=None)) -> dict:
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return user
+
+
+def require_device_key(x_device_key: Optional[str] = Header(default=None)) -> None:
+    """Gate for the two endpoints the physical ESP32 hits with no user session
+    (POST /readings, POST /device/ping) — see config.DEVICE_API_KEY. No-op
+    (feature off) when the key isn't configured yet, so this can't lock out the
+    real device before it's been reflashed with a matching key."""
+    if config.DEVICE_API_KEY and x_device_key != config.DEVICE_API_KEY:
+        raise HTTPException(status_code=401, detail="Not authenticated")

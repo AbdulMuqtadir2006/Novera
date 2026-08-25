@@ -30,9 +30,20 @@ def enforce_outreach_guarantee(user: dict[str, Any]) -> bool:
     checks THIS user's own latest screening flag only — before this fix, a
     medium/high flag belonging to a different patient could have forced an
     appointment-offer message to the wrong person. Returns True if a forced
-    appointment offer was sent."""
+    appointment offer was sent.
+
+    Keys off combined_score directly, not just the display flag (2026-08-25):
+    while config.SUPPRESS_SCREENING_FLAGS is on, scoring.evaluate() forces
+    every flag to "low" for patient-facing display (sensors/calibration
+    aren't trustworthy enough yet to alarm people over noisy readings) — but
+    combined_score itself is never suppressed. This human-oversight floor is
+    deliberately independent of that display choice: a genuinely concerning
+    score must still reach a human even while the shown flag stays calm."""
     latest = scoring.get_latest_screening_flag(user["id"])
-    if not latest or latest["flag"] not in ("medium", "high"):
+    if not latest:
+        return False
+    is_concerning = latest["flag"] in ("medium", "high") or latest["combined_score"] >= scoring.MEDIUM_FLAG_THRESHOLD
+    if not is_concerning:
         return False
 
     phone = normalize_phone(user.get("phone") or "")
@@ -55,11 +66,11 @@ def enforce_outreach_guarantee(user: dict[str, Any]) -> bool:
     whatsapp_context.mark_outbound(user["id"])
     whatsapp_context.append_conversation_note(
         user["id"],
-        f"[forced outreach] {latest['flag']} flag on {latest['organ']} — appointment offer sent "
-        f"(delivered={result.get('delivered')})",
+        f"[forced outreach] {latest['flag']} flag (combined_score={latest['combined_score']}) on "
+        f"{latest['organ']} — appointment offer sent (delivered={result.get('delivered')})",
     )
     logger.info(
-        "whatsapp_gating enforce_outreach_guarantee: user_id=%s organ=%s flag=%s delivered=%s",
-        user["id"], latest["organ"], latest["flag"], result.get("delivered"),
+        "whatsapp_gating enforce_outreach_guarantee: user_id=%s organ=%s flag=%s combined_score=%s delivered=%s",
+        user["id"], latest["organ"], latest["flag"], latest["combined_score"], result.get("delivered"),
     )
     return True
