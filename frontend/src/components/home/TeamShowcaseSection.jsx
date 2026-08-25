@@ -94,10 +94,6 @@ export function TeamShowcaseSection() {
           </PanelCaption>
         </motion.div>
       </motion.div>
-
-      <p className="mt-10 text-center text-sm text-slate-500">
-        No stock photos, no mockups — this is the actual team, paper, and hardware behind Novera.
-      </p>
     </Section>
   );
 }

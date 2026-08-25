@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { User } from "lucide-react";
-import { Section } from "./Section";
 import { staggerContainer, staggerItem } from "../ui/Reveal";
 import { TEAM_MEMBERS } from "../../data/team";
 
@@ -12,7 +11,7 @@ function MemberPhoto({ src, alt }) {
   const [failed, setFailed] = useState(false);
   if (failed) {
     return (
-      <div className="flex aspect-[4/5] w-full items-center justify-center bg-depth/5 text-depth/20">
+      <div className="flex aspect-[4/5] w-full items-center justify-center bg-white/[0.03] text-white/15">
         <User size={48} strokeWidth={1.25} />
       </div>
     );
@@ -27,47 +26,56 @@ function MemberPhoto({ src, alt }) {
   );
 }
 
+// glass-card (2026-08-25, fix) — the light bg-paper/text-depth treatment
+// this used at first is the site's *light-page* card style (see .light-card
+// in index.css, only ever used on Dashboard/Reports/Buy/SelfCare etc.) and
+// looked out of place dropped onto the dark homepage. Switched to the same
+// dark translucent glass-card + signal-accent language every other homepage
+// card already uses (AgentsSection's AgentCard, HealthAreasSection, ...).
 function MemberCard({ member }) {
   return (
     <motion.div
       variants={staggerItem}
       whileHover={{ y: -6 }}
       transition={{ type: "spring", stiffness: 300, damping: 22 }}
-      className="group flex h-full flex-col overflow-hidden rounded-2xl border border-depth/10 bg-paper shadow-card transition-shadow duration-300 hover:shadow-lift"
+      className="glass-card group flex h-full flex-col overflow-hidden transition-colors duration-300 hover:border-signal/40"
     >
       <MemberPhoto src={member.photo} alt={member.name} />
       <div className="flex flex-1 flex-col p-7">
-        <h3 className="font-display text-lg font-bold text-depth">{member.name}</h3>
-        <p className="mt-1 text-sm font-medium text-depth/55">{member.role}</p>
-        <p className="mt-3 text-sm leading-relaxed text-depth/70">{member.description}</p>
+        <h3 className="font-display text-lg font-bold text-white">{member.name}</h3>
+        <p className="mt-1 text-sm font-medium text-signal">{member.role}</p>
+        <p className="mt-3 text-sm leading-relaxed text-slate-400">{member.description}</p>
       </div>
     </motion.div>
   );
 }
 
 // "Meet the Team" (2026-08-25) — sits right after the "Behind Novera"
-// showcase. Deliberately light cards (bg-paper) on the dark homepage, per
-// Hassan's own spec: clean, minimal, no gradients/tags/stats/icons beyond
-// the portrait itself.
+// showcase, deliberately close to it: a small top padding and a plain bold
+// heading instead of the shared Section component's eyebrow/title/intro
+// treatment, so the two photo groups read as one continuous "behind the
+// scenes" block rather than two separate, far-apart homepage sections. Dark
+// glass cards matching the rest of the homepage; clean and minimal per
+// Hassan's own spec — no gradients/tags/stats/icons beyond the portrait.
 export function TeamMembersSection() {
   return (
-    <Section
-      id="team"
-      eyebrow="The Team"
-      title="Meet the people behind Novera."
-      intro="Three disciplines, one product — engineering, hardware, and business working together."
-    >
-      <motion.div
-        className="grid gap-6 sm:grid-cols-3"
-        variants={staggerContainer}
-        initial="hidden"
-        whileInView="show"
-        viewport={{ once: true, margin: "0px 0px -15% 0px" }}
-      >
-        {TEAM_MEMBERS.map((member) => (
-          <MemberCard key={member.name} member={member} />
-        ))}
-      </motion.div>
-    </Section>
+    <section id="team" className="relative pb-24 pt-4 sm:pb-32 sm:pt-8">
+      <div className="container-page">
+        <h2 className="mb-8 text-center font-display text-2xl font-bold text-white sm:text-3xl">
+          The Team
+        </h2>
+        <motion.div
+          className="grid gap-6 sm:grid-cols-3"
+          variants={staggerContainer}
+          initial="hidden"
+          whileInView="show"
+          viewport={{ once: true, margin: "0px 0px -15% 0px" }}
+        >
+          {TEAM_MEMBERS.map((member) => (
+            <MemberCard key={member.name} member={member} />
+          ))}
+        </motion.div>
+      </div>
+    </section>
   );
 }
