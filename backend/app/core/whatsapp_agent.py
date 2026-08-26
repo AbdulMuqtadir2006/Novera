@@ -28,6 +28,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
@@ -435,6 +436,54 @@ def _admin_booking_caution(user: Optional[dict[str, Any]], lang: str) -> str:
     )
 
 
+# Path lives next to backend/db/ (db.BACKEND_ROOT is backend/) — a plain,
+# append-only text file. NOTE (2026-08-26): Railway's filesystem is NOT
+# persisted across redeploys/restarts, so this is a best-effort local trail,
+# not a durable record — the WhatsApp ping in _notify_admin_of_booking below
+# is the actually-reliable channel. Railway's own deploy logs (from the
+# logger.info calls already in book_appointment/reschedule_appointment) are
+# a second, genuinely durable fallback if this file gets wiped.
+_BOOKING_LOG_PATH = db.BACKEND_ROOT / "appointment_bookings.log"
+
+
+def _notify_admin_of_booking(user: Optional[dict[str, Any]], phone: str, appointment: dict[str, Any]) -> None:
+    """Real-time notification to Hassan (config.WHATSAPP_TO) whenever a REAL
+    appointment is booked or rescheduled — his own explicit request
+    (2026-08-26): he wants to know about every real booking immediately, not
+    just find it in Railway's logs later, and specifically wants the sender's
+    number on record if someone finds/uses the admin/demo trigger phrase and
+    then books. No-op (silently) if WHATSAPP_TO isn't configured — never
+    blocks or fails the actual booking, which has already succeeded by the
+    time this runs."""
+    is_admin = bool(user) and demo_account.is_admin_account(user["id"])
+    patient_name = (user.get("name") if user else None) or "Unknown / unregistered"
+    slot = appointment.get("slot_start")
+    slot_text = slot.strftime("%a %d %b %Y, %I:%M %p") if slot else "?"
+    admin_flag = " — VIA ADMIN/DEMO TRIGGER" if is_admin else ""
+
+    try:
+        with open(_BOOKING_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(
+                f"{datetime.now(timezone.utc).isoformat()} | phone={phone} | name={patient_name} | "
+                f"slot={slot_text} | appointment_id={appointment.get('id')}{admin_flag}\n"
+            )
+    except Exception:
+        logger.exception("whatsapp_agent: failed to write appointment_bookings.log")
+
+    if not config.WHATSAPP_TO:
+        return
+    message = (
+        f"📅 New NOVERA appointment{admin_flag}\n"
+        f"Patient: {patient_name}\n"
+        f"Number: {phone}\n"
+        f"Slot: {slot_text}"
+    )
+    try:
+        whatsapp_client.send_message(message, to=config.WHATSAPP_TO)
+    except Exception:
+        logger.exception("whatsapp_agent: failed to send admin booking notification")
+
+
 def _gather_patient_facts(user: Optional[dict[str, Any]]) -> dict[str, Any]:
     """Only real, retrieved data — nothing here is generated. Multi-tenant
     (2026-08-19): every read below is scoped to this specific user_id — an
@@ -634,6 +683,7 @@ def _build_tools(
         result = booking.find_and_book_slot(user_id=user["id"] if user else None, phone=phone, channel="whatsapp")
         logger.info("whatsapp_agent book_appointment: phone=%s user_id=%s appointment_id=%s",
                     phone, user["id"] if user else None, result["id"])
+        _notify_admin_of_booking(user, phone, result)
         return whatsapp_client.confirmation_message(result) + _admin_booking_caution(user, lang)
 
     @tool
@@ -661,6 +711,7 @@ def _build_tools(
         new_booking = booking.reschedule_booking(existing["id"], phone=phone, user_id=user["id"] if user else None)
         logger.info("whatsapp_agent reschedule_appointment: phone=%s old=%s new=%s",
                     phone, existing["id"], new_booking["id"])
+        _notify_admin_of_booking(user, phone, new_booking)
         return whatsapp_client.reschedule_message(existing, new_booking) + _admin_booking_caution(user, lang)
 
     # get_patient_facts/update_patient_context/request_sensor_reading and the
