@@ -57,7 +57,11 @@ import {
 } from "lucide-react";
 
 export const CANVAS_W = 1280;
-export const CANVAS_H = 760;
+// 760 -> 820 (2026-08-26): grew to make room for the retest-loop-back wire's
+// bottom-margin routing segment (see RetestLoopWire in LiveWorkflowDiagram.jsx)
+// below every real node's lowest edge (autonomousChain satellite bottoms out
+// at y=695) without crowding it.
+export const CANVAS_H = 820;
 
 // x/y = card center. Widths are sized generously against the actual longest
 // label per node ("Natural Recovery", "Request Retest", "Sensor Reading" —

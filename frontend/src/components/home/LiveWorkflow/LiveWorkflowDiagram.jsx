@@ -440,6 +440,46 @@ function SatelliteWire({ sat, agent }) {
   );
 }
 
+// Retest -> new reading loop-back (2026-08-26). Decorative, like
+// SatelliteWire above — not a live-event wire, because a retest and the
+// physical reading it eventually leads to are two separate runs/requests
+// (a new sample has to actually be taken), not one continuous live data
+// flow within a single trigger — so unlike WORKFLOW_EDGES, this never
+// animates off real events. Routed as a 4-segment elbow through the one
+// gap in the layout with no real node in it at any height (x:171-230, the
+// dead space between the trigger column and the validate node) rather than
+// a straight diagonal, which would cut straight through wa_agent and the
+// score nodes. Geometry verified against every WORKFLOW_NODES/satellite
+// bounding box before shipping — see the git commit for the check.
+function RetestLoopWire({ from, to }) {
+  const startX = from.x;
+  const startY = from.y + from.h / 2;
+  const marginY = CANVAS_H - 40;
+  const corridorX = 200;
+  const endX = to.x + to.w / 2;
+  const endY = to.y;
+  const d = `M ${startX} ${startY} L ${startX} ${marginY} L ${corridorX} ${marginY} L ${corridorX} ${endY} L ${endX} ${endY}`;
+  return (
+    <g>
+      <path
+        d={d}
+        fill="none"
+        stroke="rgba(242,169,62,0.4)"
+        strokeWidth={1.5}
+        strokeDasharray="4 5"
+        strokeLinejoin="round"
+      />
+      {/* Arrowhead pointing left into the reading-trigger node — the path's
+          last segment travels in -x, so the tip sits at the node's edge and
+          the base trails back along the wire. */}
+      <polygon
+        points={`${endX + 8},${endY - 5} ${endX},${endY} ${endX + 8},${endY + 5}`}
+        fill="rgba(242,169,62,0.7)"
+      />
+    </g>
+  );
+}
+
 // Floats the exact backend event text under whichever node it's actually
 // about (added 2026-08-22) — e.g. "Calling book_appointment" under the
 // bundled "Booking" tool card, instead of only in the single global ticker
@@ -681,6 +721,8 @@ function WorkflowLive() {
   }, [isLive, currentLabel, lastEventAt]);
 
   const agentNode = NODE_BY_ID.wa_agent;
+  const retestNode = NODE_BY_ID.wa_tool_retest;
+  const readingTriggerNode = NODE_BY_ID.wa_trigger_reading;
   // Bug fix (found live 2026-08-22, testing the tool port): this used to
   // reconstruct a translation key from the node id by guessing its
   // camelCase form (keyOf) — broke for wa_tool_report/wa_tool_retest, whose
@@ -813,6 +855,17 @@ function WorkflowLive() {
                     reducedMotion={reducedMotion}
                   />
                 ))}
+                <RetestLoopWire from={retestNode} to={readingTriggerNode} />
+                <text
+                  x={(retestNode.x + 200) / 2}
+                  y={CANVAS_H - 40 - 10}
+                  textAnchor="middle"
+                  className="font-mono"
+                  fontSize="10"
+                  fill="rgba(242,169,62,0.55)"
+                >
+                  {t("liveWorkflow.retestLoop.label")}
+                </text>
               </svg>
 
               {WORKFLOW_NODES.map((node) => (
