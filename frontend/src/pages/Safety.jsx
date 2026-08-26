@@ -49,7 +49,7 @@ const MECHANISMS = [
   {
     icon: Lock,
     title: "Encryption and data security",
-    body: "All traffic between a patient's device, the app, and the backend runs over HTTPS/TLS. Passwords are salted and hashed — never stored, logged, or visible in plain text, not even to us. Every inbound WhatsApp message is cryptographically signature-verified (HMAC) before the system trusts it actually came from Meta and not an impersonator. Every patient's data is scoped strictly to their own account — there is no code path that lets one patient's data leak into another's.",
+    body: "All traffic between a patient's device, the app, and the backend runs over HTTPS/TLS. Passwords are salted and hashed — never stored, logged, or visible in plain text, not even to us. Every inbound WhatsApp message is cryptographically signature-verified (HMAC) before the system trusts it actually came from Meta and not an impersonator. Every patient's data is scoped strictly to their own account — there is no code path that lets one patient's data leak into another's. Screening decisions, reports, and self-care conversations are processed by third-party AI model providers (OpenRouter, routing to DeepSeek and Anthropic) — only the data needed for that specific request is sent, and it is never sold or shared with anyone beyond what's needed to generate the response.",
   },
   {
     icon: Stethoscope,

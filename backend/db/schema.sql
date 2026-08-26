@@ -63,6 +63,24 @@ CREATE TABLE IF NOT EXISTS decision_audit (
 CREATE INDEX IF NOT EXISTS idx_decision_audit_reading_id
     ON decision_audit (reading_id, id DESC);
 
+-- Tamper-evidence (2026-08-26): decision_audit is the AI Safety/auditability
+-- record of every screening decision ever made — application code already
+-- never UPDATEs or DELETEs a row after insert (verified by reading every
+-- call site), but until now that was only a code convention, not a
+-- DB-enforced guarantee — a future code change, or anyone with direct DB
+-- access, could silently alter or erase a row with no trace. This trigger
+-- makes append-only a real, testable database property instead.
+CREATE OR REPLACE FUNCTION decision_audit_block_mutation() RETURNS TRIGGER AS $$
+BEGIN
+    RAISE EXCEPTION 'decision_audit is append-only: % is not permitted (id=%)', TG_OP, OLD.id;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS decision_audit_no_mutation ON decision_audit;
+CREATE TRIGGER decision_audit_no_mutation
+    BEFORE UPDATE OR DELETE ON decision_audit
+    FOR EACH ROW EXECUTE FUNCTION decision_audit_block_mutation();
+
 -- ---------------------------------------------------------------------------
 -- Dashboard / product app
 -- ---------------------------------------------------------------------------

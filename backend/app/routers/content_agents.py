@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from .. import db
-from ..core import content_llm, reference_data
+from ..core import content_llm, emergency, reference_data
 from ..deps import require_user
 from ..rate_limit import limiter
 from ..schemas import ChatSendReq, LangReq, SelfCareReq
@@ -70,6 +70,26 @@ def send_chat(request: Request, body: ChatSendReq, user: dict = Depends(require_
         "INSERT INTO chat_messages (user_id, role, content, lang, created_at) VALUES (%s, 'user', %s, %s, %s)",
         (user["id"], message, body.lang, now),
     )
+
+    # Deterministic emergency backstop (2026-08-26) — checked before the
+    # website chat coach gets a turn, same shared logic/phrase list the
+    # WhatsApp agent uses (see core/emergency.py). Previously this surface
+    # had nothing but a system-prompt line ("never give a diagnosis") — a
+    # patient typing something like "I want to hurt myself" here got
+    # whatever the model happened to produce, no code-level safety net.
+    if emergency.is_emergency_message(message):
+        reply_text = emergency.reply(body.lang)
+        db.execute(
+            "INSERT INTO chat_messages (user_id, role, content, lang, created_at) VALUES (%s, 'assistant', %s, %s, %s)",
+            (user["id"], reply_text, body.lang, datetime.now(timezone.utc)),
+        )
+        return {
+            "reply": reply_text,
+            "context": reference_data.get_context(user["id"]),
+            "contextChanged": False,
+            "planChanged": False,
+            "source": "emergency",
+        }
 
     row = reference_data.get_latest_row(user["id"])
     reading = reference_data.row_to_reading(row) if row else None

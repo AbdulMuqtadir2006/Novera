@@ -41,6 +41,7 @@ from . import (
     clinic,
     content_llm,
     demo_account,
+    emergency,
     reasoning_stream,
     reference_data,
     report_pdf,
@@ -352,40 +353,6 @@ _GREETING_RE = re.compile(
 
 def _is_plain_greeting(text: str) -> bool:
     return bool(_GREETING_RE.match((text or "").strip()))
-
-
-# Emergency-message keyword gate (2026-08-25) — deliberately simple and
-# deterministic, not another LLM call: if something matters this much, don't
-# trust it to a model call that could fail, drift, or get talked out of
-# redirecting. Matches ANYWHERE in the message (unlike _GREETING_RE, which
-# must match the whole message) since a real emergency is rarely phrased as
-# a bare keyword. Kept to high-specificity phrases only (no bare "pain") so
-# an ordinary question ("is mild stomach pain normal after eating?") never
-# gets hijacked into the emergency reply.
-_EMERGENCY_RE = re.compile(
-    r"(can'?t breathe|cannot breathe|chest pain|heart attack|having a stroke|"
-    r"severe bleeding|bleeding heavily|suicidal|kill myself|want to die|"
-    r"overdose|need an ambulance|"
-    r"لا أستطيع التنفس|ألم في الصدر|نوبة قلبية|سكتة دماغية|نزيف حاد|"
-    r"أريد أن أموت|أفكر في الانتحار|أحتاج إسعاف)",
-    re.IGNORECASE,
-)
-
-
-def _is_emergency_message(text: str) -> bool:
-    return bool(_EMERGENCY_RE.search((text or "").strip()))
-
-
-def _emergency_reply(lang: str) -> str:
-    if lang == "ar":
-        return (
-            "🚨 نوفيرا أداة فحص أولي وليست خدمة طوارئ. إذا كانت هذه حالة طارئة حقيقية، يرجى "
-            "الاتصال فورًا بالرقم 9999 (الطوارئ في عُمان) أو التوجه إلى أقرب قسم طوارئ الآن."
-        )
-    return (
-        "🚨 NOVERA is a screening tool, not an emergency service. If this is a real medical "
-        "emergency, please call 9999 (Oman's emergency number) or go to the nearest ER right now."
-    )
 
 
 def _greeting_reply(user: Optional[dict[str, Any]], lang: str) -> str:
@@ -1277,9 +1244,9 @@ def handle_inbound(from_number: str, text: str, lang: str = "en") -> str:
     # Checked first, ahead of even the admin trigger — a real emergency takes
     # priority over every other path in this function, including whichever
     # account this number resolves to.
-    if _is_emergency_message(text):
+    if emergency.is_emergency_message(text):
         logger.info("whatsapp_agent: emergency keyword match, phone=%s — hardcoded reply, no agent loop", phone)
-        whatsapp_client.send_message(_emergency_reply(lang), to=from_number)
+        whatsapp_client.send_message(emergency.reply(lang), to=from_number)
         return ""
 
     admin_row = _try_admin_trigger(from_number, text)
