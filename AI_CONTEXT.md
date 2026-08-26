@@ -1,6 +1,6 @@
 # AI Context — Novera
 
-Last updated: 2026-08-23. Read this first in any new session before touching the code — it captures
+Last updated: 2026-08-26. Read this first in any new session before touching the code — it captures
 what's actually built, deployed, and working right now, plus the non-obvious gotchas that cost real
 debugging time to find.
 
@@ -418,6 +418,77 @@ Two separate user-reported bugs, both in `backend/app/core/whatsapp_agent.py`:
    of the conversation's actual language — now passes the real `lang`. **Known limitation**: MP3 renders
    in WhatsApp as a standard tappable audio attachment, not the native voice-message bubble (waveform +
    mic icon) — that UI is reserved for OGG/Opus, which needs an audio encoder this backend doesn't ship.
+
+### AI safety/security hardening pass, real hardware detected, competition context confirmed (2026-08-25/26)
+
+A real, code-level audit (not doc-level — the 4 companion docs below were deleted around the same
+time for being stale) found this codebase's AI-competition context for the first time: `AI
+Competition Evaluation Criteria.pdf` (repo root) confirms this is Oman's Ministry of Transport,
+Communications and IT "Engineer it with AI" competition — Final Evaluation **2026-08-30/31**,
+scored Impact 25% / Technical Product 25% / Relevance & Innovation 20% / AI Safety & Oversight 15%
+/ Team & Future Plans 10% / Pitch Quality 5%. Real fixes shipped against genuine gaps found by
+reading the code, not cosmetic docs:
+
+- **`POST /api/readings` and `POST /device/ping` now require `X-Device-Key`** (`config.
+  DEVICE_API_KEY`, checked by `deps.require_device_key`) — previously zero authentication on either.
+  **No-op until the key is actually set on Railway AND `hardware/esp32_sensor/esp32_sensor.ino`'s
+  `DEVICE_KEY` constant is updated + reflashed to match** — currently both sides are still empty/
+  unset on purpose, so the real device isn't locked out. This is the one remaining manual step from
+  this pass — do the Railway env var and the reflash together, never one without the other.
+- **Autonomous WhatsApp triggers can no longer book/cancel/reschedule real appointments** —
+  `_build_tools`'s new `allow_booking` param is hardcoded `False` in `handle_trigger` (the exclusively
+  proactive/autonomous entry point). Only a patient's own reactive reply (`handle_inbound`) can commit
+  a real booking now; an autonomous run can still *offer* one (`send_appointment_offer`), same as
+  before.
+- **The human-oversight "safety floor" was silently dead in production, now fixed.**
+  `whatsapp_gating.enforce_outreach_guarantee` used to key off the patient-facing `flag`, which
+  `config.SUPPRESS_SCREENING_FLAGS=true` (still the default) forces to `"low"` for every case — so
+  the forced-outreach mechanism never actually fired for real. It now also checks the real, never-
+  suppressed `combined_score` directly (`scoring.MEDIUM_FLAG_THRESHOLD = 0.60`), so a genuinely
+  concerning reading still reaches a human even while the *displayed* flag stays calm for calibration
+  reasons. Keep this distinction in mind if `SUPPRESS_SCREENING_FLAGS` is ever discussed — the display
+  flag and the safety floor are no longer the same mechanism.
+- **`backend/app/core/emergency.py`** (new, shared by both WhatsApp and the website chat): a
+  deterministic (non-LLM) keyword gate — chest pain, can't breathe, suicidal ideation, "hurt myself,"
+  etc., EN+AR — that short-circuits straight to a hardcoded "call 9999 / go to the ER" reply before
+  any model call happens. Previously neither surface had this; the website chat (`POST /api/chat`)
+  had *nothing* but a system-prompt line standing between a message like "I want to hurt myself" and
+  the AI. Both surfaces now share the exact same phrase list — update `emergency.py` once, both stay
+  in sync.
+- **`ADMIN_WA_TRIGGER_PHRASE` is now rate-limited** against brute-force guessing (8 short near-miss
+  attempts / 10 min lockout per phone, `whatsapp_agent._admin_trigger_locked_out`) — doesn't penalize
+  normal conversation length, only short phrase-length-ish misses.
+- **`decision_audit` is now DB-enforced append-only**, not just an application convention —
+  `db/schema.sql` adds a `BEFORE UPDATE OR DELETE` trigger that raises an exception. Untested against
+  a real Postgres instance before shipping (no local Postgres available that session) — the syntax
+  reuses an already-proven `DO $$...$$` dollar-quoting pattern elsewhere in the same file, but if a
+  future Railway deploy's pre-deploy step (`scripts/init_db.py`) ever fails unexpectedly, check this
+  trigger first.
+- **WhatsApp reply latency fix**: `get_patient_facts` was a mandatory tool call before the model could
+  answer almost anything — a full extra sequential OpenRouter round-trip on nearly every turn.
+  `handle_inbound`/`handle_trigger` now prefetch it and hand it to the model directly in the first
+  message (`_build_tools`'s new `prefetched_facts` param pre-seeds the tool's cache too, so calling it
+  anyway is a free hit, not a duplicate DB query) — a normal reply now costs one model call instead of
+  two-plus.
+- **Real Safari/WebKit bug fixed**: `/buy` page product images (`ProductImage.jsx`) rendered visibly
+  warped on macOS only — `overflow-hidden` nested inside `Tilt3DCard`'s `preserve-3d` 3D-transform
+  context is a known WebKit rendering bug (Chrome/Firefox render the identical markup fine). Fixed by
+  forcing the image onto its own compositing layer (`transform: translateZ(0)`). If any other
+  `Tilt3DCard` usage ever gets a rounded/clipped image inside it, apply the same fix proactively.
+- **`/safety` page rewritten with 2 new mechanism cards** (the emergency gate above, and the
+  autonomy-limit fix above) plus a corrected intro (it used to say the AI "books an appointment"
+  autonomously, which stopped being true the moment the booking-restriction fix above shipped) and a
+  new line in the encryption card naming OpenRouter/DeepSeek/Anthropic as data processors. The page's
+  own standing promise — "every mechanism on this page is grounded in the actual code that runs in
+  production" — is why the `DEVICE_API_KEY` auth fix above is deliberately NOT mentioned there yet: it
+  isn't actually enforced in production until the Railway+reflash step happens.
+- **Bundle pricing dropped to $3/$6/$13** (Starter/Value/Pro, was $27/$58/$98) — deliberate loss-
+  leader pricing, confirmed intentional despite going below COGS. See `catalog.py`'s updated
+  docstring for the new margin numbers.
+- **`TEAM_AND_ROADMAP.md`, `DATA_PRIVACY_AND_SAFETY.md`, `REGULATORY_AND_CLINICAL_PATHWAY.md`,
+  `PITCH_ADDENDUM.md` were deleted** (all dated 2026-08-11, stale — e.g. still called the hardware
+  "dummy mode" after real sensors had shipped). Still recoverable from git history if any of that
+  regulatory/privacy reasoning is needed again.
 
 ## Key files / architecture
 

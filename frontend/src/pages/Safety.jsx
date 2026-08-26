@@ -8,10 +8,12 @@ import {
   CheckCircle2,
   Eye,
   GitCompare,
+  Hand,
   KeyRound,
   Lock,
   ScrollText,
   ShieldCheck,
+  Siren,
   Stethoscope,
   UserCheck,
 } from "lucide-react";
@@ -44,7 +46,17 @@ const MECHANISMS = [
   {
     icon: UserCheck,
     title: "Every flagged case goes to a human, never silently decided",
-    body: "Nothing about how a result was reached is hidden. Every screening decision — the reading it came from, the score computed for each organ system, and the model's own reasoning — is permanently logged in a full audit trail. A result only ever counts as verified ground truth once a clinician has explicitly reviewed and confirmed it through a dedicated tool; any case the system itself flags as uncertain is preserved for that same manual review — by a clinician or the engineering team — never quietly auto-approved.",
+    body: "Nothing about how a result was reached is hidden. Every screening decision — the reading it came from, the score computed for each organ system, and the model's own reasoning — is permanently logged in a full audit trail, and that trail is enforced at the database level: no code path, including a future change, can silently alter or delete a past decision record. A result only ever counts as verified ground truth once a clinician has explicitly reviewed and confirmed it through a dedicated tool; any case the system itself flags as uncertain is preserved for that same manual review — by a clinician or the engineering team — never quietly auto-approved.",
+  },
+  {
+    icon: Siren,
+    title: "A hard-coded safety net catches emergencies",
+    body: "Before any AI model ever sees a message — on WhatsApp or in the website chat — it's checked against a fixed list of real emergency phrases (chest pain, can't breathe, suicidal thoughts, and similar, in English and Arabic). A match skips the AI entirely and sends an instant, unconditional reply: call Oman's emergency number or go to the nearest ER. This is deterministic pattern-matching, not a model call, deliberately — something this important shouldn't depend on a model behaving as expected in the moment.",
+  },
+  {
+    icon: Hand,
+    title: "The AI can offer, but only you can confirm a booking",
+    body: "When the system reaches out on its own about a flagged result, it can offer an appointment — but it cannot commit that booking by itself. Booking, cancelling, or rescheduling a real clinic slot only ever happens in direct response to the patient's own reply; the tools that make those real writes are structurally unavailable to every autonomous trigger, not just discouraged by a prompt. An autonomous decision can suggest an action; only a human's own message can commit one.",
   },
   {
     icon: Lock,
@@ -115,7 +127,7 @@ export default function Safety() {
     <PageShell
       eyebrow="AI Safety & Oversight"
       title="How we keep humans in control"
-      intro="The Orchestral AI (WhatsApp) makes real decisions — screening a reading, booking an appointment, reaching out proactively. Every one of those decisions is built around the same rule: the AI can act, but a human can always see, check, and override what it did."
+      intro="The Orchestral AI (WhatsApp) makes real decisions — screening a reading, offering an appointment, reaching out proactively. Every one of those decisions is built around the same rule: the AI can act, but a human can always see, check, and override what it did — and committing to a real booking always waits for the patient's own reply, never the AI's own initiative."
     >
       <PipelineFlow />
 
