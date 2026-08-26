@@ -81,7 +81,8 @@ export function TeamShowcaseSection() {
           <PaperPanel />
           <PanelCaption>
             Our written submission covering the screening approach, the agentic architecture
-            behind the WhatsApp Agent, and how human oversight is built into every decision.
+            behind the WhatsApp Agent, and how human oversight is built into every decision —
+            accepted for GSR 2026, not yet published.
           </PanelCaption>
         </motion.div>
 
@@ -90,7 +91,8 @@ export function TeamShowcaseSection() {
           <ImageSlideshow images={TESTING_PHOTOS} emptyIcon={TestTube2} emptyLabel="Testing photos coming soon" />
           <PanelCaption>
             Real hands-on testing of the physical NOVERA device — capturing saliva samples,
-            checking sensor readings, and confirming the WhatsApp experience end to end.
+            checking sensor readings, and confirming the WhatsApp experience end to end. Tested
+            and consulted on with doctors at The Royal Hospital in Ghala, Oman.
           </PanelCaption>
         </motion.div>
       </motion.div>
