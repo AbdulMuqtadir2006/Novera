@@ -159,6 +159,11 @@ export default function Dashboard() {
   // requestSample()'s 409 (device offline, see routers/device.py), not
   // discovered only after a 30s poll times out (2026-08-23, Hassan's report).
   const [deviceOffline, setDeviceOffline] = useState(false);
+  // Admin/demo account's instant mixed-range reading (2026-08-26, Hassan's
+  // call) has no real sensor behind it — surfaced here, not just via the
+  // (already red) DeviceStatusBadge, so it's impossible to miss right next
+  // to the button that just produced it.
+  const [instantDemo, setInstantDemo] = useState(false);
   const { reading, loading } = useLatestReading(refresh);
   // Bug fix (2026-08-22): "All" (days=9999) was requesting the same 30 days
   // as the 30-day option — silently identical charts. Backend caps at 365
@@ -188,6 +193,7 @@ export default function Dashboard() {
     setAdding(true);
     setSampleError(false);
     setDeviceOffline(false);
+    setInstantDemo(false);
     try {
       const before = reading?.timestamp ?? null;
       // No catch around this before now — a failure here (expired session,
@@ -195,8 +201,9 @@ export default function Dashboard() {
       // stopped spinning with zero feedback, indistinguishable from "did
       // nothing." Now surfaces the same error banner the poll-timeout path
       // already uses, and logs the real cause for debugging.
+      let sampleResult;
       try {
-        await requestSample();
+        sampleResult = await requestSample();
       } catch (e) {
         console.error("requestSample failed:", e);
         if (e.status === 409) {
@@ -206,6 +213,7 @@ export default function Dashboard() {
         }
         return;
       }
+      if (sampleResult?.instant) setInstantDemo(true);
 
       const deadline = Date.now() + POLL_TIMEOUT_MS;
       let landed = false;
@@ -245,6 +253,7 @@ export default function Dashboard() {
           </div>
           {deviceOffline && <p className="text-xs font-medium text-red-500">{t("dash.deviceOffline")}</p>}
           {sampleError && <p className="text-xs font-medium text-red-500">{t("dash.sampleTimeout")}</p>}
+          {instantDemo && <p className="text-xs font-medium text-red-500">{t("dash.instantDemoReading")}</p>}
         </div>
       </header>
 
