@@ -33,6 +33,30 @@ def _stabilize(base: float, amp: float, lo: float, hi: float, dp: int) -> float:
     return _round(min(hi, max(lo, base + (random.random() - 0.5) * amp)), dp)
 
 
+def synthesize_mixed_range() -> dict[str, float]:
+    """Exactly 2 of the 4 biomarkers land inside their clinical reference
+    range, the other 2 land outside it — which 2 is randomized every call.
+    Backs the admin/demo account's on-demand "Take New Sample" (2026-08-26,
+    Hassan's call): unlike synthesize() above (near-normal-only jitter),
+    this deliberately produces a mixed-signal reading so a demo can exercise
+    the real screening/flagging pipeline on request, not just show a
+    healthy-looking dashboard."""
+    keys = list(reference_data.REFERENCE.keys())
+    random.shuffle(keys)
+    in_range_keys = set(keys[:2])
+    values: dict[str, float] = {}
+    for key, spec in reference_data.REFERENCE.items():
+        lo, hi = spec["range"]
+        span = hi - lo
+        if key in in_range_keys:
+            value = random.uniform(lo + span * 0.2, hi - span * 0.2)
+        else:
+            overshoot = span * random.uniform(0.15, 0.45)
+            value = (lo - overshoot) if random.random() < 0.5 else (hi + overshoot)
+        values[key] = _round(value, spec["dp"])
+    return values
+
+
 def synthesize(last: Optional[dict[str, Any]] = None) -> dict[str, float]:
     """A plausible reading near clinically-normal baselines, or drifted off
     `last` if given. Temperature respects config.SENSOR_STABILIZATION_ENABLED

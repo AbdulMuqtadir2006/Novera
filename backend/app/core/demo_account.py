@@ -62,3 +62,23 @@ def ensure_seeded(user_id: int) -> Optional[dict[str, Any]]:
         """,
         (user_id, datetime.now(timezone.utc), values["ph"], values["creatinine"], values["urea"], values["temperature"]),
     )
+
+
+def insert_instant_reading(user_id: int) -> dict[str, Any]:
+    """Always inserts a fresh reading for the admin account (unlike
+    ensure_seeded above, which only fires when there are none yet at all) —
+    the backing behavior for admin's "Take New Sample" button (2026-08-26,
+    Hassan's call), which has no real device to arm-and-wait-on. Deliberately
+    a mixed-range reading (reading_synthesis.synthesize_mixed_range — 2
+    biomarkers in range, 2 out, randomized), not synthesize()'s near-normal
+    jitter, so a demo can exercise the screening/flagging pipeline on
+    request rather than always seeing a healthy-looking reading."""
+    values = reading_synthesis.synthesize_mixed_range()
+    return db.fetch_one(
+        """
+        INSERT INTO readings (user_id, "timestamp", ph, creatinine, urea, temperature)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        RETURNING *
+        """,
+        (user_id, datetime.now(timezone.utc), values["ph"], values["creatinine"], values["urea"], values["temperature"]),
+    )

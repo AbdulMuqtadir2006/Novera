@@ -19,10 +19,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
-from .. import db
-from ..core import demo_account
+from .. import config, db
+from ..core import demo_account, whatsapp_agent
 from ..core.device_control import arm_device_for_user, device_state
 from ..deps import require_device_key, require_user
 from ..schemas import DevicePingIn
@@ -63,14 +63,29 @@ def status(user: dict = Depends(require_user)):
 
 
 @router.post("/device/request-sample", status_code=202)
-def request_sample(user: dict = Depends(require_user)):
+def request_sample(background_tasks: BackgroundTasks, user: dict = Depends(require_user)):
     # Bug fix (2026-08-23, Hassan's report): this used to arm the device
     # unconditionally even when it was offline — the request just sat
     # pending with no feedback until the frontend's 30s poll timed out with
     # a generic "no response" message. Now fails fast and honestly, except
     # for the admin/demo account, which is explicitly meant to work with no
     # real sensor connected at all (see core/demo_account.py).
-    if not demo_account.is_admin_account(user["id"]) and not device_state()["online"]:
+    if demo_account.is_admin_account(user["id"]):
+        # Admin/demo has no real ESP32 to arm-and-wait-on, so arming here
+        # would just sit pending forever — instead, insert a real mixed-
+        # range reading (2 biomarkers in range, 2 out, randomized) right
+        # now (2026-08-26, Hassan's call) and fire the same autonomous
+        # trigger a real device's POST /api/readings would, so the button
+        # resolves on the frontend's very first poll tick instead of timing
+        # out, and the screening pipeline actually runs on it. Deliberately
+        # does NOT touch device_state (ssid/last_seen) — the status badge
+        # must keep honestly showing "not connected" for this account,
+        # since no real hardware is involved in producing this reading.
+        row = demo_account.insert_instant_reading(user["id"])
+        if config.AUTO_AGENT_ENABLED:
+            background_tasks.add_task(whatsapp_agent.handle_trigger, "sensor.reading_received", user)
+        return {"requested": True, "instant": True, "reading_id": row["id"]}
+    if not device_state()["online"]:
         raise HTTPException(status_code=409, detail="device_offline")
     arm_device_for_user(user["id"])
     return {"requested": True}

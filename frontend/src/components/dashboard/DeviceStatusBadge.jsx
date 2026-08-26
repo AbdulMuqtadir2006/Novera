@@ -7,7 +7,11 @@ import { useLang } from "../../i18n/LanguageContext";
 export function DeviceStatusBadge() {
   const { t } = useLang();
   const { online, ssid } = useDeviceStatus();
-  const color = online ? "#16a34a" : "#94a3b8";
+  // Red (not the old muted gray) for offline, 2026-08-26, Hassan's call —
+  // makes it visually unmistakable that a reading came from a random/demo
+  // generator (e.g. the admin account's instant "Take New Sample") and not
+  // a real connected sensor, rather than reading as a quiet neutral status.
+  const color = online ? "#16a34a" : "#ef4444";
 
   return (
     <span
