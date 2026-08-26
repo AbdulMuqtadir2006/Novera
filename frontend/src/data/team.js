@@ -24,5 +24,12 @@ export const TEAM_MEMBERS = [
     description:
       "Hassan leads the business and commercial direction of Novera. With a background in Chemical Engineering, he focuses on business development, market strategy, partnerships and commercialization. His role is to identify opportunities, build valuable relationships and help position Novera's technology as a strong and commercially viable health-tech product.",
     photo: "/team/hassan.jpg",
+    // hassan.jpg is a much taller/narrower crop (720x1280) than the other two
+    // photos, with a lot of empty background above his head — the default
+    // object-top crop left excessive dead space above him and made his face
+    // read small/distant compared to Hamza's and Abdul's tight headshot
+    // crops. Shifted down (checked visually against a few offsets) so his
+    // hat/face fill the frame the same way theirs do (2026-08-26).
+    photoPosition: "center 45%",
   },
 ];

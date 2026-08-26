@@ -7,7 +7,7 @@ import { TEAM_MEMBERS } from "../../data/team";
 // Never a broken-image icon (2026-08-25) — matches ImageSlideshow's own
 // "honest placeholder, not a broken image" rule. Falls back to a plain
 // person glyph until the real portrait is dropped into public/team/.
-function MemberPhoto({ src, alt }) {
+function MemberPhoto({ src, alt, position = "top" }) {
   const [failed, setFailed] = useState(false);
   if (failed) {
     return (
@@ -21,7 +21,8 @@ function MemberPhoto({ src, alt }) {
       src={src}
       alt={alt}
       onError={() => setFailed(true)}
-      className="aspect-[1/1] w-full object-cover object-top transition-transform duration-500 ease-expo group-hover:scale-[1.04]"
+      style={{ objectPosition: position }}
+      className="aspect-[1/1] w-full object-cover transition-transform duration-500 ease-expo group-hover:scale-[1.04]"
     />
   );
 }
@@ -40,7 +41,7 @@ function MemberCard({ member }) {
       transition={{ type: "spring", stiffness: 300, damping: 22 }}
       className="glass-card group flex h-full flex-col overflow-hidden transition-colors duration-300 hover:border-signal/40"
     >
-      <MemberPhoto src={member.photo} alt={member.name} />
+      <MemberPhoto src={member.photo} alt={member.name} position={member.photoPosition} />
       <div className="flex flex-1 flex-col p-5">
         <h3 className="font-display text-base font-bold text-white">{member.name}</h3>
         <p className="mt-1 text-xs font-medium text-signal">{member.role}</p>
