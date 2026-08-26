@@ -19,7 +19,7 @@ from pydantic import BaseModel, ValidationError
 
 from .. import config, db
 from ..schemas import ReportOut, SelfCareOut, VoiceOut
-from . import fallbacks, reference_data
+from . import fallbacks, llm_text, reference_data
 
 REFERENCE_LABELS = fallbacks.REFERENCE_LABELS
 METRIC_KEYS = fallbacks.METRIC_KEYS
@@ -81,7 +81,7 @@ def structured_json_call(system: str, user: str, model_cls: Type[T], temperature
     except Exception as exc:
         raise LLMError(f"LLM call failed: {exc}") from exc
 
-    data = _extract_json(str(response.content))
+    data = _extract_json(llm_text.strip_reasoning(str(response.content)))
     try:
         return model_cls.model_validate(data)
     except ValidationError as exc:
@@ -125,7 +125,7 @@ def agentic_structured_call(
         messages.append(response)
         tool_calls = getattr(response, "tool_calls", None) or []
         if not tool_calls:
-            data = _extract_json(str(response.content))
+            data = _extract_json(llm_text.strip_reasoning(str(response.content)))
             try:
                 return model_cls.model_validate(data)
             except ValidationError as exc:
@@ -544,7 +544,7 @@ def chat_agent(messages: list[dict[str, Any]], reading: dict[str, Any] | None, c
             chat_messages.append(response)
             tool_calls = getattr(response, "tool_calls", None) or []
             if not tool_calls:
-                reply_text = str(response.content).strip()
+                reply_text = llm_text.strip_reasoning(str(response.content))
                 break
             for call in tool_calls:
                 name = call.get("name")

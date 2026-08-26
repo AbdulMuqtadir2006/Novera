@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 
-from . import content_llm
+from . import content_llm, llm_text
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +157,7 @@ def generate_reasoning_stream(
                 {"role": "user", "content": user_message},
             ]
         )
-        lines = _parse_lines(str(response.content))
+        lines = _parse_lines(llm_text.strip_reasoning(str(response.content)))
         if len(lines) < 2:
             logger.info("generate_reasoning_stream: fewer than 2 usable lines parsed, skipping narration")
             return None

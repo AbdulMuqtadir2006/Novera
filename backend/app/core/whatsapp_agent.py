@@ -43,6 +43,7 @@ from . import (
     content_llm,
     demo_account,
     emergency,
+    llm_text,
     reasoning_stream,
     reference_data,
     report_pdf,
@@ -1243,8 +1244,10 @@ def _run_agent_loop(messages: list, tools: list) -> tuple[Optional[str], bool, b
         messages.append(response)
         tool_calls = getattr(response, "tool_calls", None) or []
         if not tool_calls:
-            if isinstance(response.content, str) and response.content.strip():
-                return response.content.strip(), False, self_send_fired
+            if isinstance(response.content, str):
+                cleaned = llm_text.strip_reasoning(response.content)
+                if cleaned:
+                    return cleaned, False, self_send_fired
             return None, False, self_send_fired
         for call in tool_calls:
             name = call.get("name")
