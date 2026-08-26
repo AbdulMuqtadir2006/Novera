@@ -259,6 +259,8 @@ export const translations = {
     "liveWorkflow.satellite.memoryDetail": "Confirmed cases + context",
     "liveWorkflow.satellite.tool": "Tool",
     "liveWorkflow.satellite.toolDetail": "The agent picks whichever of these it actually needs — often none.",
+    "liveWorkflow.satellite.autonomousChain": "Autonomous Chaining",
+    "liveWorkflow.satellite.autonomousChainDetail": "One run can call several tools in sequence with no human step in between — e.g. a low-confidence reading automatically triggers a retest instead of guessing.",
 
     "liveWorkflow.toolPort.available": "available",
     "liveWorkflow.toolRail.label": "Tool details",
@@ -572,6 +574,8 @@ export const translations = {
     "liveWorkflow.satellite.memoryDetail": "الحالات المؤكدة والسياق",
     "liveWorkflow.satellite.tool": "الأداة",
     "liveWorkflow.satellite.toolDetail": "يختار الوكيل ما يحتاجه فعلاً من هذه الأدوات — وغالباً لا يحتاج شيئاً.",
+    "liveWorkflow.satellite.autonomousChain": "التسلسل المستقل",
+    "liveWorkflow.satellite.autonomousChainDetail": "يمكن لتشغيل واحد استدعاء عدة أدوات بالتتابع دون أي خطوة بشرية بينها — مثلاً، قراءة منخفضة الثقة تُشغّل طلب إعادة الفحص تلقائيًا بدلاً من التخمين.",
 
     "liveWorkflow.toolPort.available": "متاحة",
     "liveWorkflow.toolRail.label": "تفاصيل الأداة",

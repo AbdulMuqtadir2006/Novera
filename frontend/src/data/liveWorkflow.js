@@ -53,6 +53,7 @@ import {
   CalendarClock,
   Stethoscope,
   CheckCircle2,
+  Repeat,
 } from "lucide-react";
 
 export const CANVAS_W = 1280;
@@ -195,6 +196,19 @@ export const WORKFLOW_EDGES = [
 export const AGENT_SATELLITES = [
   { id: "chatModel", labelKey: "liveWorkflow.satellite.chatModel", detailKey: "liveWorkflow.satellite.chatModelDetail", icon: Sparkles, dx: -75, dy: 150 },
   { id: "memory", labelKey: "liveWorkflow.satellite.memory", detailKey: "liveWorkflow.satellite.memoryDetail", icon: Database, dx: 75, dy: 150 },
+  // Decorative, same non-event-driven pattern as the two above — grounded in
+  // real behavior (2026-08-26), not illustrative fiction: within one
+  // sensor.reading_received run, the agent can call run_screening_pipeline
+  // and then, based on what it returns, autonomously chain straight into
+  // request_retest (validation failed / low confidence) or
+  // generate_report + send_appointment_offer (a confident flagged result) —
+  // no human approves the step in between. Centered below the other two
+  // (dx: 0) rather than beside them — placed further down (dy: 260 vs
+  // their 150) so its chip clears both without overlapping (checked against
+  // WORKFLOW_NODES' fixed coordinates: nearest real nodes are wa_trigger_
+  // wellness/wa_trigger_message at x=85, far outside this chip's ~x:[684,816]
+  // span, and wa_tool_checkin at y=428, well above this chip's y:[605,695]).
+  { id: "autonomousChain", labelKey: "liveWorkflow.satellite.autonomousChain", detailKey: "liveWorkflow.satellite.autonomousChainDetail", icon: Repeat, dx: 0, dy: 260 },
 ];
 
 // Illustrative loop for the always-alive idle/preview animation (no backend
