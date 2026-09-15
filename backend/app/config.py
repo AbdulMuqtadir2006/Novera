@@ -150,6 +150,18 @@ ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip().lower()
 # which sender number used it (see whatsapp_agent.py's _try_admin_trigger).
 ADMIN_WA_TRIGGER_PHRASE = os.getenv("ADMIN_WA_TRIGGER_PHRASE", "").strip()
 
+# ---- Novera WhatsApp pause switch (2026-09-15, Hassan's call) ----
+# The Meta WhatsApp Business app/number this project uses is being shared
+# with a separate project (AmnTech) for a while. This flag pauses ALL
+# Novera-initiated WhatsApp traffic — every outbound send in whatsapp_client.py
+# AND inbound message processing in routers/whatsapp.py — without touching
+# any credentials or removing any code. Set NOVERA_WHATSAPP_PAUSED=true
+# (Railway: `railway variables set NOVERA_WHATSAPP_PAUSED=true`) to pause;
+# unset it or set it to false to resume Novera's WhatsApp behavior exactly as
+# it was, with zero other changes needed. Independent of WHATSAPP_ENABLED,
+# which only reflects whether Meta credentials are configured at all.
+NOVERA_WHATSAPP_PAUSED = os.getenv("NOVERA_WHATSAPP_PAUSED", "false").strip().lower() == "true"
+
 # ---- device auth (2026-08-25) ----
 # POST /api/readings and POST /device/ping previously had zero authentication —
 # anyone on the internet could inject fake biomarker readings or poll a

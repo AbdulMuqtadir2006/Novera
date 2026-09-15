@@ -71,6 +71,12 @@ async def inbound(request: Request, background_tasks: BackgroundTasks) -> Respon
     if not _valid_signature(raw, request.headers.get("X-Hub-Signature-256", "")):
         return Response(status_code=403, content="bad signature")
 
+    if config.NOVERA_WHATSAPP_PAUSED:
+        # Novera's WhatsApp behavior is paused (shared number, another
+        # project is using it right now) — ack Meta so it doesn't retry, but
+        # don't process or reply to anything. See config.NOVERA_WHATSAPP_PAUSED.
+        return Response(content='{"status":"ok"}', media_type="application/json")
+
     data = json.loads(raw or b"{}")
     for entry in data.get("entry", []):
         for change in entry.get("changes", []):

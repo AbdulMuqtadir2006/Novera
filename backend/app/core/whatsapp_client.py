@@ -23,8 +23,11 @@ def _normalize(to: str) -> str:
 
 def send_message(body: str, to: Optional[str] = None, simulate: bool = False) -> dict[str, Any]:
     to = to or config.WHATSAPP_TO
-    if simulate or not config.WHATSAPP_ENABLED or not to:
-        reason = "simulate" if simulate else ("meta_not_configured" if not config.WHATSAPP_ENABLED else "no_recipient")
+    if simulate or not config.WHATSAPP_ENABLED or not to or config.NOVERA_WHATSAPP_PAUSED:
+        reason = "simulate" if simulate else (
+            "novera_paused" if config.NOVERA_WHATSAPP_PAUSED else
+            "meta_not_configured" if not config.WHATSAPP_ENABLED else "no_recipient"
+        )
         print(f"[whatsapp:simulated:{reason}] -> {to or '(no recipient)'}\n{body}\n")
         return {"delivered": False, "simulated": True, "reason": reason, "to": to, "body": body}
 
@@ -62,8 +65,11 @@ def send_document(
     no way to attach raw bytes directly to a message the way `to`/`text` work
     in send_message()."""
     to = to or config.WHATSAPP_TO
-    if simulate or not config.WHATSAPP_ENABLED or not to:
-        reason = "simulate" if simulate else ("meta_not_configured" if not config.WHATSAPP_ENABLED else "no_recipient")
+    if simulate or not config.WHATSAPP_ENABLED or not to or config.NOVERA_WHATSAPP_PAUSED:
+        reason = "simulate" if simulate else (
+            "novera_paused" if config.NOVERA_WHATSAPP_PAUSED else
+            "meta_not_configured" if not config.WHATSAPP_ENABLED else "no_recipient"
+        )
         print(f"[whatsapp:simulated:{reason}] -> {to or '(no recipient)'}\n[document: {filename}, {len(pdf_bytes)} bytes]\n")
         return {"delivered": False, "simulated": True, "reason": reason, "to": to}
 
@@ -112,8 +118,11 @@ def send_audio(
     ffmpeg) this backend doesn't ship. Still real synthesized speech the
     patient can tap and play, just not that one UI treatment."""
     to = to or config.WHATSAPP_TO
-    if simulate or not config.WHATSAPP_ENABLED or not to:
-        reason = "simulate" if simulate else ("meta_not_configured" if not config.WHATSAPP_ENABLED else "no_recipient")
+    if simulate or not config.WHATSAPP_ENABLED or not to or config.NOVERA_WHATSAPP_PAUSED:
+        reason = "simulate" if simulate else (
+            "novera_paused" if config.NOVERA_WHATSAPP_PAUSED else
+            "meta_not_configured" if not config.WHATSAPP_ENABLED else "no_recipient"
+        )
         print(f"[whatsapp:simulated:{reason}] -> {to or '(no recipient)'}\n[audio: {filename}, {len(audio_bytes)} bytes]\n")
         return {"delivered": False, "simulated": True, "reason": reason, "to": to}
 
@@ -168,8 +177,11 @@ def send_template_message(
     needs submitted for approval before proactive outreach can work outside
     the 24h window."""
     to = to or config.WHATSAPP_TO
-    if simulate or not config.WHATSAPP_ENABLED or not to:
-        reason = "simulate" if simulate else ("meta_not_configured" if not config.WHATSAPP_ENABLED else "no_recipient")
+    if simulate or not config.WHATSAPP_ENABLED or not to or config.NOVERA_WHATSAPP_PAUSED:
+        reason = "simulate" if simulate else (
+            "novera_paused" if config.NOVERA_WHATSAPP_PAUSED else
+            "meta_not_configured" if not config.WHATSAPP_ENABLED else "no_recipient"
+        )
         print(f"[whatsapp:simulated:{reason}] -> {to or '(no recipient)'}\n[template: {template_name}, vars={variables}]\n")
         return {"delivered": False, "simulated": True, "reason": reason, "to": to, "template_name": template_name}
 
