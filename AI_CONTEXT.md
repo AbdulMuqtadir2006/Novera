@@ -590,6 +590,22 @@ reading the code, not cosmetic docs:
   to wherever it's invoked, and running it from inside `backend/` fails with "Failed to read app
   source directory") is the manual-deploy escape hatch while auto-deploy is down.
 
+### WhatsApp number shared with AmnTech, pause switch added (2026-09-15)
+
+The Meta WhatsApp Business app/number this project uses is being shared with a separate, unrelated
+project (AmnTech, an industrial-safety wearable — its own WhatsApp alerting is a completely
+separate Node.js process on another machine, making its own direct Meta Graph API calls; it does
+not go through this backend at all and isn't affected by anything below).
+
+`config.NOVERA_WHATSAPP_PAUSED` (env var, default `false` — zero behavior change until set) pauses
+**all** Novera-initiated WhatsApp traffic in one place: every send in `whatsapp_client.py`
+(`send_message`/`send_document`/`send_audio`/`send_template_message` all report
+`simulated=True, reason="novera_paused"` instead of calling Meta) and inbound webhook processing in
+`routers/whatsapp.py` (acks Meta immediately, does nothing else — no agent loop, no DB writes, no
+reply). Set `NOVERA_WHATSAPP_PAUSED=true` on Railway to pause; unset it or set `false` to resume
+exactly as before, no other changes needed. If a "why did WhatsApp stop working" question ever comes
+up, check this first before assuming something's broken.
+
 ## Open / deferred
 
 - **RAG for the self-care coach**: discussed but *not implemented* — Novera currently has no large
