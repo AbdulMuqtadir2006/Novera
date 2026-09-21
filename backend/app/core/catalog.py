@@ -2,20 +2,22 @@
 
 *** LOAD-BEARING, DO NOT EDIT SILENTLY ***
 The four USD prices below are the actual numbers the NOVERA business/
-financial model is built on (device COGS $95/margin $34). The three bundle
-prices are set to round OMR targets (Starter 2.5 OMR, Value 5.5 OMR, Pro
-12.5 OMR — Hassan's call, 2026-09-21, revised down same day from an
-earlier 5/12/17 OMR pass), backed into USD via the fixed peg below so
-`price_omr` lands on an exact round number for Thawani checkout. Below
-COGS on all three (Starter: COGS $15, price ~$6.50, margin ~-$8.50;
-Value: COGS $37.5, price ~$14.30, margin ~-$23.20; Pro: COGS $75,
-price ~$32.51, margin ~-$42.49) — loss-leader by design, not an error.
-If a price ever needs to change, flag it and update the business plan
-alongside this file — never edit only here. This module is the SINGLE
-source of truth for pricing: the frontend has no hardcoded prices of its
-own, it fetches GET /api/catalog, and checkout always prices from here
-server-side, never from client input (never trust a client-submitted
-price for what to charge).
+financial model is built on. Device and all three bundle prices are set
+to round OMR (Rial Omani) targets — Device 49 OMR, Starter 2.5 OMR,
+Value 5.5 OMR, Pro 10 OMR (Hassan's call, 2026-09-21, this is the third
+pricing pass same day: device was $129/49.601 OMR, Pro bundle was
+12.5 OMR, both revised down) — backed into USD via the fixed peg below
+so `price_omr` lands on an exact round number for Thawani checkout.
+Device: COGS $95, price ~$127.44, margin ~$32.44. Bundles below COGS on
+all three (Starter: COGS $15, price ~$6.50, margin ~-$8.50; Value: COGS
+$37.5, price ~$14.30, margin ~-$23.20; Pro: COGS $75, price ~$26.01,
+margin ~-$48.99) — loss-leader by design, not an error. If a price ever
+needs to change, flag it and update the business plan alongside this
+file — never edit only here. This module is the SINGLE source of truth
+for pricing: the frontend has no hardcoded prices of its own, it fetches
+GET /api/catalog, and checkout always prices from here server-side, never
+from client input (never trust a client-submitted price for what to
+charge).
 
 Currency: OMR, converted from the USD figures above at the Central Bank of
 Oman's official fixed peg (in place since 1986): 1 OMR = 2.6008 USD, i.e.
@@ -67,11 +69,11 @@ class Product:
         return round(self.omr_baisa / self.strip_count) / 1000
 
 
-DEVICE = Product(sku="DEVICE", item_type="device", name="NOVERA Reader", usd_price=129, strip_count=None)
-# usd_price values below back-solve to exactly 2.5 / 5.5 / 12.5 OMR (2500/5500/12500 baisa) at the peg.
+# usd_price values below back-solve to exactly 49 / 2.5 / 5.5 / 10 OMR (49000/2500/5500/10000 baisa) at the peg.
+DEVICE = Product(sku="DEVICE", item_type="device", name="NOVERA Reader", usd_price=127.4382, strip_count=None)
 STARTER = Product(sku="STARTER", item_type="bundle", name="Starter Bundle", usd_price=6.502, strip_count=10)
 VALUE = Product(sku="VALUE", item_type="bundle", name="Value Bundle", usd_price=14.3043, strip_count=25)
-PRO = Product(sku="PRO", item_type="bundle", name="Pro Bundle", usd_price=32.5098, strip_count=50)
+PRO = Product(sku="PRO", item_type="bundle", name="Pro Bundle", usd_price=26.0078, strip_count=50)
 
 CATALOG: dict[str, Product] = {p.sku: p for p in (DEVICE, STARTER, VALUE, PRO)}
 BUNDLE_SKUS = ("STARTER", "VALUE", "PRO")
