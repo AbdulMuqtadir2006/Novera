@@ -3,16 +3,19 @@
 *** LOAD-BEARING, DO NOT EDIT SILENTLY ***
 The four USD prices below are the actual numbers the NOVERA business/
 financial model is built on (device COGS $95/margin $34). The three bundle
-prices were deliberately dropped below COGS on 2026-08-25 as intentional
-loss-leader/promotional pricing (Starter: COGS $15, price $3, margin -$12;
-Value: COGS $37.5, price $6, margin -$31.5; Pro: COGS $75, price $13,
-margin -$62) — every bundle sale currently operates at a loss by design,
-not an error. If a price ever needs to change, flag it and update the
-business plan alongside this file — never edit only here. This module is
-the SINGLE source of truth for pricing: the frontend
-has no hardcoded prices of its own, it fetches GET /api/catalog, and
-checkout always prices from here server-side, never from client input
-(never trust a client-submitted price for what to charge).
+prices are set to round OMR targets (Starter 5 OMR, Value 12 OMR, Pro
+17 OMR — Hassan's call, 2026-09-21), backed into USD via the fixed peg
+below so `price_omr` lands on an exact round number for Thawani checkout.
+Still below COGS on all three (Starter: COGS $15, price ~$13.00, margin
+~-$2; Value: COGS $37.5, price ~$31.21, margin ~-$6.29; Pro: COGS $75,
+price ~$44.21, margin ~-$30.79) — a much shallower loss than the prior
+$3/$6/$13 pricing, but still loss-leader, not an error. If a price ever
+needs to change, flag it and update the business plan alongside this
+file — never edit only here. This module is the SINGLE source of truth
+for pricing: the frontend has no hardcoded prices of its own, it fetches
+GET /api/catalog, and checkout always prices from here server-side, never
+from client input (never trust a client-submitted price for what to
+charge).
 
 Currency: OMR, converted from the USD figures above at the Central Bank of
 Oman's official fixed peg (in place since 1986): 1 OMR = 2.6008 USD, i.e.
@@ -65,9 +68,10 @@ class Product:
 
 
 DEVICE = Product(sku="DEVICE", item_type="device", name="NOVERA Reader", usd_price=129, strip_count=None)
-STARTER = Product(sku="STARTER", item_type="bundle", name="Starter Bundle", usd_price=3, strip_count=10)
-VALUE = Product(sku="VALUE", item_type="bundle", name="Value Bundle", usd_price=6, strip_count=25)
-PRO = Product(sku="PRO", item_type="bundle", name="Pro Bundle", usd_price=13, strip_count=50)
+# usd_price values below back-solve to exactly 5 / 12 / 17 OMR (5000/12000/17000 baisa) at the peg.
+STARTER = Product(sku="STARTER", item_type="bundle", name="Starter Bundle", usd_price=13.0039, strip_count=10)
+VALUE = Product(sku="VALUE", item_type="bundle", name="Value Bundle", usd_price=31.2094, strip_count=25)
+PRO = Product(sku="PRO", item_type="bundle", name="Pro Bundle", usd_price=44.2133, strip_count=50)
 
 CATALOG: dict[str, Product] = {p.sku: p for p in (DEVICE, STARTER, VALUE, PRO)}
 BUNDLE_SKUS = ("STARTER", "VALUE", "PRO")
