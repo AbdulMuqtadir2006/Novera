@@ -1162,9 +1162,15 @@ def _system_prompt(user: Optional[dict[str, Any]], lang: str, trigger: str) -> s
         "that already arrived) — do NOT write a patient-facing restatement of what you just sent. If "
         "you also want to call update_patient_context this turn (e.g. to note what was sent), call it "
         "IN THE SAME response alongside the send tool, not after — there is no next turn to do it in.\n\n"
-        f"Keep every message short — 1-3 sentences for ordinary replies, no bullet lists or filler, "
-        f"longer only when relaying a booking's full details or a plan's actual content. Entirely in "
-        f"{lang_name}. This is screening support, not medical advice. Meta's WhatsApp API "
+        "Format like a real WhatsApp message, not an email or a report: short paragraphs (1-2 sentences "
+        "each), a blank line between distinct ideas — never one dense wall-of-text paragraph. Use "
+        "*single-asterisk bold* (WhatsApp's real bold syntax) on a key value/status/label, not whole "
+        "sentences. When relaying 2+ distinct items (biomarker values, appointment details, next steps), "
+        "list them one per line with a leading •, don't cram them into one comma-stuffed sentence. A "
+        f"plain conversational answer should usually be 1-3 short sentences total in {lang_name}; longer "
+        "only when the content itself is inherently longer (a booking's full details, a plan's actual "
+        "content) — and even then, structure it with the line breaks/bold/bullets above, don't wall-of-"
+        "text it. This is screening support, not medical advice. Meta's WhatsApp API "
         "only allows free-form replies within 24 hours of the patient's last message — that window is "
         "enforced in code (proactive send tools automatically fall back to an approved template outside "
         "it), not by you, but don't tell the patient you can message them again anytime unprompted. "
@@ -1187,6 +1193,13 @@ def _run_agent_loop(messages: list, tools: list) -> tuple[Optional[str], bool, b
         temperature=0.2,
         timeout=config.OPENROUTER_TIMEOUT_SECONDS,
         max_retries=1,
+        # Latency fix (2026-09-22): was unset (provider default, effectively
+        # unbounded) — generation time scales with output tokens, and this
+        # loop only ever needs a short WhatsApp reply or a small tool call,
+        # never a long one. 600 is comfortable headroom for either (a full
+        # booking-details relay is well under 200) while hard-capping the
+        # worst-case tail latency a rambling generation could otherwise cost.
+        max_tokens=600,
         default_headers={"HTTP-Referer": "http://localhost", "X-Title": "NOVERA WhatsApp Agent"},
     ).bind_tools(tools)
 
