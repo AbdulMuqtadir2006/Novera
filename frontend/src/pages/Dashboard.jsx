@@ -215,15 +215,22 @@ export default function Dashboard() {
       }
       if (sampleResult?.instant) setInstantDemo(true);
 
+      // Check-then-wait, not wait-then-check (2026-09-22 latency fix): the
+      // admin/demo account's `instant` reading (see routers/device.py) is
+      // already in the DB by the time requestSample() resolves, but this
+      // loop used to always sleep POLL_INTERVAL_MS before its first check —
+      // wasting that whole interval for zero reason on the one path where
+      // the answer was already available. Real-device path is unaffected:
+      // one extra near-free check at t=0 that simply finds nothing yet.
       const deadline = Date.now() + POLL_TIMEOUT_MS;
       let landed = false;
       while (Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
         const latest = await getLatestReading().catch(() => null);
         if (latest && latest.timestamp !== before) {
           landed = true;
           break;
         }
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
       }
 
       if (landed) {
