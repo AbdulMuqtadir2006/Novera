@@ -223,7 +223,13 @@ def report_agent(reading: dict[str, Any], ctx: dict[str, Any], user_id: int, lan
             user=f"{_describe_reading(reading)}\n\nPatient context:\n{_describe_context(ctx)}",
             model_cls=ReportOut,
             tools=[get_reading_history],
-            max_tokens=1400,
+            # Latency fix (2026-09-22): 1400 was generous padding over the
+            # realistic need (headline + summary + 4 short area notes +
+            # recommendation is ~500-700 tokens) — this is the LLM call
+            # inside send_report_pdf/generate_report, on the direct path a
+            # patient waits on. Lower cap = lower worst-case generation time,
+            # same headroom logic as the WhatsApp agent loop's 600 cap.
+            max_tokens=900,
         )
         data = out.model_dump()
         data["disclaimer"] = fallbacks.RESEARCH_LINE.get(lang, fallbacks.RESEARCH_LINE["en"])
